@@ -410,7 +410,9 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/api/fingerprint":  # open to anyone: it carries no one's data, only what this machine is
-            b = json.dumps(fingerprint_now(), indent=1).encode()
+            d = dict(fingerprint_now())
+            d["cookie_arrived"] = bool(self.headers.get("Cookie"))   # true or false only, never the value: did a sign-in reach this machine with this request
+            b = json.dumps(d, indent=1).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store"); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b); return
         if path not in ("/verify", "/privacy", "/terms") and not check_auth(self.headers.get("Authorization", ""), PASSWORD):

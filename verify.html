@@ -57,6 +57,7 @@ footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-si
  <div class="row"><div class="what">The engine address</div><div class="how">The code refuses to start unless the AI answers at this machine's own loopback address. There is no override.</div><div class="ev" id="engine">…</div></div>
  <div class="row"><div class="what">Storage</div><div class="how">No database, no files, no cache. The question, the argument and the answer live in memory for the run and are gone when it ends.</div><div class="ev" id="stores">…</div></div>
  <div class="row"><div class="what">Logs</div><div class="how">Access log off. Errors are logged by type only, never with text. The engine's log holds timings, not words.</div><div class="ev" id="logs">…</div></div>
+ <div class="row"><div class="what">Your sign-in</div><div class="how">An AskBoard sign-in stays on AskBoard. The website drops every cookie before a request is forwarded here, so this machine never learns who asked. This line is what arrived with your own page load.</div><div class="ev" id="cookie">…</div></div>
  <div class="row"><div class="what">Records on file</div><div class="how">Public primary documents the seats may quote. Besides its own code and the AI's weights, they are the only files this machine reads, and none of them is yours.</div><div class="ev" id="docs">…</div></div>
 </div>
 
@@ -112,6 +113,7 @@ const REPO="";  /* set to the public address of the published code; empty keeps 
   $("#stores").textContent=f.stores;
   $("#logs").textContent="access log "+f.access_log+", password required: "+(f.password_required?"yes":"no");
   $("#docs").textContent=f.archive_documents+" public documents";
+  $("#cookie").textContent=f.cookie_arrived?"a cookie arrived with this request (it is ignored and not kept)":"no cookie arrived with this request";
   $("#cmd").textContent="shasum -a 256 "+code.map(([n])=>n).join(" ");
   const good=f.engine_on_this_machine&&f.password_required&&f.access_log==="off";
   $("#seal").classList.toggle("warn",!good);
