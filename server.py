@@ -11,14 +11,22 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 ENGINE = os.environ.get("QB_ENGINE", "http://127.0.0.1:8081/v1/chat/completions")
-if not ENGINE.startswith(("http://127.0.0.1", "http://localhost", "http://[::1]")) and not os.environ.get("QB_ALLOW_REMOTE_ENGINE"):
-    sys.exit("QB_ENGINE must stay on this machine (the privacy promise); set QB_ALLOW_REMOTE_ENGINE=1 to override knowingly")
+
+
+def engine_is_local(url):
+    """Exact loopback host, http only, no credentials. No override: the promise on the page has none."""
+    from urllib.parse import urlsplit
+    u = urlsplit(url)
+    return u.scheme == "http" and u.hostname in ("127.0.0.1", "localhost", "::1") and u.username is None
+
+
+if not engine_is_local(ENGINE):
+    sys.exit("QB_ENGINE must be this machine: http://127.0.0.1, localhost or [::1]")
 PORT = int(os.environ.get("QB_PORT", "8090"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 MAX_Q = 1500
 from archive import Archive, brief
 ARCHIVE = Archive()
-RECORD_SEATS = (0, 4, 6)   # the Dissident, the Investigator, the Historian read the records; the rest answer from reasoning alone
 MAX_DOC = 7000  # about 1,200 words: each of the eight seats runs in a 4k-token slot, and the material rides inside every prompt
 PASSWORD = os.environ.get("QB_PASSWORD", "")
 if not PASSWORD and not os.environ.get("QB_ALLOW_OPEN") and __name__ == "__main__":  # the door is never open by accident (DeepSeek B7, 2026-11-02)
@@ -37,6 +45,7 @@ def check_auth(header, password):
     return hmac.compare_digest(given.encode(), password.encode())
 
 from brain import SEATS, CHECKERS, STYLE  # the brain: roles and prompts, private
+RECORD_SEATS = tuple(range(len(SEATS)))   # every seat reads the same records: evidence for the whole room, never a prop for one side (critic, 2026-11-02)
 import brain
 
 
@@ -135,7 +144,7 @@ def direction(scores):
     f = sum(1 for s in scores if s >= 60)
     a = sum(1 for s in scores if s <= 40)
     n = len(scores)
-    return ("for" if f * 8 >= n * 5 else "against" if a * 8 >= n * 5 else "split"), f, a, n - f - a
+    return ("for" if f * 8 >= n * 5 else "against" if a * 8 >= n * 5 else "split"), f, a, n - f - a   # five of eight; 3 of 5 is split on purpose, a thin room needs a clearer majority
 
 
 def prev_text(p):
@@ -174,11 +183,14 @@ def extract_claims(page):
     what the person will actually read and not only what the Chair chose to list (expert audit, 2026-11-02)."""
     sys_p = brain.reader_prompt()
     d = call(sys_p, "Page:\n%s" % page_text(page), ["CLAIMS"], ["CLAIMS"], 320, 0.1)
-    return claim_lines(d["CLAIMS"])
+    found = claim_lines(d["CLAIMS"])
+    if not found and d["CLAIMS"].strip().upper() != "NONE":
+        raise ValueError("Reader answered in prose")   # prose is not a reading; the caller marks the run partial
+    return found
 
 
-def merge_claims(chair, found):
-    """Chair's list first, then what the Reader found, without near-duplicates, capped."""
+def merge_claims(chair, found, cap=MAX_CLAIMS):
+    """Chair's list first, then what the Reader found, without near-duplicates, capped (cap=None for the full list)."""
     key = lambda c: re.sub(r"[^a-z0-9 ]", "", c.lower()).strip()
     out, seen = [], set()
     for c in list(chair) + list(found):
@@ -186,7 +198,7 @@ def merge_claims(chair, found):
         if k and k not in seen:
             seen.add(k)
             out.append(c.strip())
-    return out[:MAX_CLAIMS]
+    return out[:cap] if cap else out
 
 
 def fact_check(ci, page, records=""):
@@ -228,7 +240,7 @@ def attach(q, doc, name=""):
     """Fold the person's attached text into the question. It lives in memory for this run only, under tags the seats are told to judge, never obey."""
     clean = lambda t: re.sub(r"</?\s*(question|material)\s*>", "", t or "", flags=re.I)
     q = clean(q)
-    doc = clean(doc).strip()[:MAX_DOC]
+    doc = re.sub(r"\[R\d+\]", "", clean(doc)).strip()[:MAX_DOC]   # fake record marks in pasted material are stripped; the question is left as typed
     if not doc:
         return q
     label = re.sub(r"[^\w. -]", "", name or "")[:60] or "attached text"
@@ -236,13 +248,13 @@ def attach(q, doc, name=""):
 
 
 def run(q, emit, doc="", docname=""):
+    t0 = time.time()
     try:
         hits = ARCHIVE.search(q)
     except Exception:
         hits = []
-    records = brief(hits, 700 if doc else 1600)
+    records, hits = brief(hits, 700 if doc else 1600)   # hits is now exactly what the seats and checkers were shown
     q = attach(q, doc, docname)
-    t0 = time.time()
     emit("records", {"n": len(hits), "items": [{"title": h["title"], "date": h["date"], "type": h["type"], "source": h["source"]} for h in hits]})
     with ThreadPoolExecutor(8) as ex:
         futs = {ex.submit(seat_first, i, q, emit, records): i for i in range(8)}
@@ -292,9 +304,12 @@ def run(q, emit, doc="", docname=""):
             read = True
         except Exception:
             found, read = [], False
+        before = len(page["claims"])
         page["claims"] = claims = merge_claims(page["claims"], found)
+        overflow = max(0, len(merge_claims(page["claims"], found, cap=None)) - MAX_CLAIMS)
+        added = max(0, len(claims) - before)   # claims the Reader found that the Chair had left off, after duplicates
         blocked, doubts, ran = [], 0, 0
-        ev = {"round": rounds + 1, "claims": len(claims), "blocked": 0, "ran": 0, "doubts": 0, "read": read, "found": len(found)}
+        ev = {"round": rounds + 1, "claims": len(claims), "blocked": 0, "ran": 0, "doubts": 0, "read": read, "found": added, "overflow": overflow}
         if not claims and not read:  # nobody read the page: that is unchecked, never "nothing to check"
             status = "unchecked"
             emit("check", ev)
@@ -310,6 +325,8 @@ def run(q, emit, doc="", docname=""):
             blocked, doubts = consensus(claims, checks)
         emit("check", {**ev, "blocked": len(blocked), "ran": ran, "doubts": doubts})
         if not blocked:
+            if not read or overflow:   # checked, but not every sentence: say so, never "clean"
+                status = "partial"
             break
         rounds += 1
         if rounds >= 2:  # still blocked after one rewrite: the page shows exactly which claims did not hold
@@ -320,7 +337,7 @@ def run(q, emit, doc="", docname=""):
     page["records"] = [{"title": h["title"], "date": h["date"], "type": h["type"], "source": h["source"]} for h in hits]
     total = time.time() - t0
     emit("final", {"page": page, "direction": d, "for": nf, "against": na, "between": nb, "moved": moved,
-                   "fact": {"status": status, "claims": len(page["claims"]), "rounds": rounds + 1, "ran": ran, "doubts": doubts, "read": read},
+                   "fact": {"status": status, "claims": len(page["claims"]), "rounds": rounds + 1, "ran": ran, "doubts": doubts, "read": read, "overflow": overflow},
                    "ms": int(total * 1000)})
     sys.stderr.write("[quick-board] total_ms=%d seats_ms=%d write_check_ms=%d moved=%d dir=%s fact=%s rounds=%d\n" % (
         total * 1000, t_seats * 1000, (time.time() - t1) * 1000, moved, d, status, rounds + 1))
@@ -376,7 +393,7 @@ def fingerprint_now():
         ARCHIVE.refresh()
     except Exception:
         pass
-    return {**PRINT, "engine": ENGINE, "engine_on_this_machine": ENGINE.startswith(("http://127.0.0.1", "http://localhost", "http://[::1]")),
+    return {**PRINT, "engine": ENGINE, "engine_on_this_machine": engine_is_local(ENGINE),
             "password_required": bool(PASSWORD), "access_log": "off", "stores": "nothing: no database, no files, no cache",
             "archive_documents": len({i[0].get("source") or i[0].get("title") for i in ARCHIVE.items}) if ARCHIVE.items else 0,
             "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -396,9 +413,9 @@ class H(BaseHTTPRequestHandler):
             b = json.dumps(fingerprint_now(), indent=1).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store"); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b); return
-        if path != "/verify" and not check_auth(self.headers.get("Authorization", ""), PASSWORD):
+        if path not in ("/verify", "/privacy", "/terms") and not check_auth(self.headers.get("Authorization", ""), PASSWORD):
             return self.deny()
-        page = {"/": "index.html", "/index.html": "index.html", "/privacy": "privacy.html", "/terms": "terms.html", "/verify": "verify.html"}.get(path)
+        page = {"/": "index.html", "/privacy": "privacy.html", "/terms": "terms.html", "/verify": "verify.html"}.get(path)
         if page:
             b = open(os.path.join(HERE, page), "rb").read()
             self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")

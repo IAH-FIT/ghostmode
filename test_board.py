@@ -58,7 +58,8 @@ with tempfile.TemporaryDirectory() as td:
     hits = ar.search("Did the sugar industry pay Harvard scientists to blame fat for heart disease?")
     assert hits and hits[0]["title"].startswith("Sugar") and hits[0]["source"] == "https://example.org/srf" and len(hits[0]["text"]) <= A.QUOTE, hits
     assert all(h["title"] != "Gulf of Tonkin" for h in hits), hits          # one shared word is not a match
-    b = A.brief(hits); assert "[R1]" in b and "1967-07-27" in b and A.brief([]) == ""
+    b, kept = A.brief(hits); assert "[R1]" in b and "1967-07-27" in b and kept == hits and A.brief([]) == ("", [])
+    assert A.brief(hits, limit=10) == ("", [])   # nothing fits, nothing is claimed
     meta, body = A.read_doc(os.path.join(td, "tonkin.txt")); assert meta["type"] == "declassified" and body.startswith("The NSA")
     assert len(A.passages("para one.\n\n" + ("x" * 3000))) >= 3
 print("archive tests pass")
@@ -70,3 +71,17 @@ S2.fingerprint(); fp = S2.fingerprint_now()
 assert set(fp["code"]) >= {"server.py", "archive.py", "brain.py"} and fp["engine_on_this_machine"] and fp["access_log"] == "off" and "checked_at" in fp, fp
 import json as _j; assert "question" not in _j.dumps(fp).lower()
 print("fingerprint tests pass")
+
+# engine address: exact loopback only, no look-alikes, no override
+assert S.engine_is_local("http://127.0.0.1:8081/v1") and S.engine_is_local("http://localhost:8081/x") and S.engine_is_local("http://[::1]:8081/x")
+assert not S.engine_is_local("http://localhost.example.org/x") and not S.engine_is_local("https://127.0.0.1/x") and not S.engine_is_local("http://user@127.0.0.1/x")
+# merge: the uncapped list reveals overflow
+assert len(merge_claims([], ["c%d" % i for i in range(30)], cap=None)) == 30
+print("loopback and overflow tests pass")
+
+# attach strips fake record marks; the Reader fails closed on prose
+assert "[R4]" not in S.attach("q", "see [R4] Declassified memo")
+assert "[R4]" in S.attach("q [R4]", "")   # the question itself is never rewritten
+import archive as _A2
+assert _A2.tokens("the government report") == [] and "northwoods" in _A2.tokens("Operation Northwoods")
+print("attach and stopword tests pass")

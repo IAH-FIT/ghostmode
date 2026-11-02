@@ -54,14 +54,14 @@ footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-si
 <div id="live">
  <div class="row"><div class="what">The code</div><div class="how">Every file that handles your question, with the digest of the copy that is running. Compare it with the published copy below.</div><div class="ev" id="code">…</div></div>
  <div class="row"><div class="what">The AI</div><div class="how">One AI, a weights file on this machine's own disk. No account with any outside AI company exists.</div><div class="ev" id="model">…</div></div>
- <div class="row"><div class="what">The engine address</div><div class="how">The code refuses to start if the AI is anywhere but this machine.</div><div class="ev" id="engine">…</div></div>
+ <div class="row"><div class="what">The engine address</div><div class="how">The code refuses to start unless the AI answers at this machine's own loopback address. There is no override.</div><div class="ev" id="engine">…</div></div>
  <div class="row"><div class="what">Storage</div><div class="how">No database, no files, no cache. The question, the argument and the answer live in memory for the run and are gone when it ends.</div><div class="ev" id="stores">…</div></div>
  <div class="row"><div class="what">Logs</div><div class="how">Access log off. Errors are logged by type only, never with text. The engine's log holds timings, not words.</div><div class="ev" id="logs">…</div></div>
- <div class="row"><div class="what">Records on file</div><div class="how">Public primary documents the seats may quote. They are the only files this machine reads, and none of them is yours.</div><div class="ev" id="docs">…</div></div>
+ <div class="row"><div class="what">Records on file</div><div class="how">Public primary documents the seats may quote. Besides its own code and the AI's weights, they are the only files this machine reads, and none of them is yours.</div><div class="ev" id="docs">…</div></div>
 </div>
 
 <h2>Check it yourself</h2>
-<p>The code that handles your question is published. Download it, take its digest, and compare with the one above. If they match, the published code is the code that answered you.</p>
+<p>The code that handles your question is published. Download it, take its digest, and compare with the one above. If they match, the published code is the code on this machine's disk, as the machine itself reports it. An outside reviewer is what turns that report into proof, and that step is listed below as not yet done.</p>
 <pre id="cmd">shasum -a 256 server.py archive.py</pre>
 <p class="fine" id="repo">Published copy: being prepared. Until then this page shows the live digests and the published ones will appear here.</p>
 
@@ -70,7 +70,7 @@ footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-si
 <div class="ai" id="ai"><p class="fine">Available the moment the code is published.</p></div>
 
 <h2>What stays outside our control</h2>
-<div class="row"><div class="what">In transit</div><div class="how">Your request reaches this machine through our website host and a network provider, encrypted. They see connection details, as every website's host does. Neither sees a question in the clear on our side, and neither keeps one.</div></div>
+<div class="row"><div class="what">In transit</div><div class="how">Your request reaches this machine through our website host and a network provider, encrypted. They handle the connection the way every website's host does, so they see connection details, and we do not control their logs. On our machine the question is held in memory for the run and not kept.</div></div>
 <div class="row"><div class="what">Your browser</div><div class="how">It keeps one yes flag once you pass the adults-only notice, and whatever you choose to save. The microphone uses your browser's own speech service; type when it must stay fully private.</div></div>
 
 <h2>On your side</h2>
@@ -115,10 +115,10 @@ const REPO="";  /* set to the public address of the published code; empty keeps 
   $("#cmd").textContent="shasum -a 256 "+code.map(([n])=>n).join(" ");
   const good=f.engine_on_this_machine&&f.password_required&&f.access_log==="off";
   $("#seal").classList.toggle("warn",!good);
-  $("#seal-h").textContent=good?"Live from the machine: answered here, kept nowhere.":"Live from the machine: something is not as promised.";
-  $("#seal-s").textContent="Checked "+new Date(f.checked_at).toLocaleString()+", process started "+new Date(f.started).toLocaleString()+".";
+  $("#seal-h").textContent=good?"Live from the machine: engine local, password on, logs off.":"Live from the machine: something is not as promised.";
+  $("#seal-s").textContent="Reported by the machine itself. Checked "+new Date(f.checked_at).toLocaleString()+", process started "+new Date(f.started).toLocaleString()+".";
  }catch(e){
-  $("#seal").classList.add("warn");$("#seal-h").textContent="The machine did not answer.";$("#seal-s").textContent="It may be down. When it is down, nothing is running and nothing is kept. Try again in a minute.";
+  $("#seal").classList.add("warn");$("#seal-h").textContent="The machine did not answer.";$("#seal-s").textContent="It may be down. Try again in a minute.";
   document.querySelectorAll("#live .ev").forEach(x=>x.textContent="unavailable");
  }
 })();
