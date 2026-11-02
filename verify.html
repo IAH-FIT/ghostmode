@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Verify Ghost Mode</title>
+<style>
+:root{--ink:#191411;--ink2:#4A423B;--ink3:#6B625A;--line:#E4DCCF;--paper:#F6EEE3;--gold:#A8822E;--gold-text:#7A5E1E;--green:#2E6B43;--serif:Georgia,"Times New Roman",serif;--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;background:#fff;color:var(--ink);font:400 17px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.wrap{max-width:720px;margin:0 auto;padding:0 16px 56px}
+header{display:flex;align-items:center;justify-content:space-between;padding:18px 0 10px}
+header a.back{font-size:14px;color:var(--ink3);text-decoration:none}
+.k{font:500 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);margin:0 0 8px}
+h1{font:460 clamp(34px,8vw,52px)/1.05 var(--serif);letter-spacing:-.02em;margin:28px 0 12px}
+.sub{font-size:19px;color:var(--ink2);margin:0 0 28px}
+.seal{display:flex;align-items:center;gap:14px;padding:16px 18px;border:1px solid var(--line);border-radius:16px;background:var(--paper);margin:0 0 26px}
+.seal svg{flex:0 0 44px;width:44px;height:44px}
+.seal b{display:block;font:500 17px/1.25 var(--sans)}
+.seal span{font-size:14px;color:var(--ink3)}
+.seal.warn{background:#FBF3F0}
+h2{font:460 24px/1.2 var(--serif);letter-spacing:-.01em;margin:34px 0 12px}
+.row{display:grid;grid-template-columns:1fr;gap:4px;padding:14px 0;border-top:1px solid var(--line)}
+.row:last-child{border-bottom:1px solid var(--line)}
+.row .what{font-weight:500}
+.row .how{color:var(--ink2);font-size:15px}
+.row .ev{font:400 12.5px/1.5 var(--mono);color:var(--ink3);word-break:break-all;margin-top:4px}
+.ok::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--green);margin:0 8px 1px 0}
+.pend::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;background:#C9B48A;margin:0 8px 1px 0}
+code,pre{font:400 13px/1.55 var(--mono)}
+pre{background:var(--paper);border-radius:12px;padding:14px 16px;overflow-x:auto;margin:10px 0 0}
+.fine{font-size:14px;color:var(--ink3)}
+.ai{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 6px}.ai a{display:inline-block;padding:11px 16px;border:1px solid var(--ink);border-radius:999px;text-decoration:none;font-size:15px;font-weight:500}.ai a:hover{background:var(--paper)}
+footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--ink3)}
+@media (min-width:640px){.row{grid-template-columns:200px 1fr}.row .ev{grid-column:2}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header><a class="back" href="./">Ghost Mode</a><span class="k" style="margin:0">Zero Point Collective</span></header>
+
+<p class="k">Verification</p>
+<h1>Verify Ghost Mode.</h1>
+<p class="sub">What you type is answered on one machine and kept nowhere. This page reads that machine live and shows you what is running, so you can check instead of trust.</p>
+
+<div class="seal" id="seal">
+ <svg viewBox="15.2 15.2 69.6 69.6" aria-hidden="true"><circle cx="50" cy="50" r="33" fill="none" stroke="#A8822E" stroke-width="2.6"/><circle cx="50" cy="50" r="23" fill="none" stroke="#A8822E" stroke-width="6.9"/></svg>
+ <div><b id="seal-h">Reading the machine…</b><span id="seal-s">One moment.</span></div>
+</div>
+
+<h2>What is running right now</h2>
+<div id="live">
+ <div class="row"><div class="what">The code</div><div class="how">Every file that handles your question, with the digest of the copy that is running. Compare it with the published copy below.</div><div class="ev" id="code">…</div></div>
+ <div class="row"><div class="what">The AI</div><div class="how">One AI, a weights file on this machine's own disk. No account with any outside AI company exists.</div><div class="ev" id="model">…</div></div>
+ <div class="row"><div class="what">The engine address</div><div class="how">The code refuses to start if the AI is anywhere but this machine.</div><div class="ev" id="engine">…</div></div>
+ <div class="row"><div class="what">Storage</div><div class="how">No database, no files, no cache. The question, the argument and the answer live in memory for the run and are gone when it ends.</div><div class="ev" id="stores">…</div></div>
+ <div class="row"><div class="what">Logs</div><div class="how">Access log off. Errors are logged by type only, never with text. The engine's log holds timings, not words.</div><div class="ev" id="logs">…</div></div>
+ <div class="row"><div class="what">Records on file</div><div class="how">Public primary documents the seats may quote. They are the only files this machine reads, and none of them is yours.</div><div class="ev" id="docs">…</div></div>
+</div>
+
+<h2>Check it yourself</h2>
+<p>The code that handles your question is published. Download it, take its digest, and compare with the one above. If they match, the published code is the code that answered you.</p>
+<pre id="cmd">shasum -a 256 server.py archive.py</pre>
+<p class="fine" id="repo">Published copy: being prepared. Until then this page shows the live digests and the published ones will appear here.</p>
+
+<h2>Or have another AI check it</h2>
+<p>Hand the published code and this page to an AI that is not ours and ask it the hard questions. The link opens that AI with a fixed question and our two addresses. Nothing about you goes with it.</p>
+<div class="ai" id="ai"><p class="fine">Available the moment the code is published.</p></div>
+
+<h2>What stays outside our control</h2>
+<div class="row"><div class="what">In transit</div><div class="how">Your request reaches this machine through our website host and a network provider, encrypted. They see connection details, as every website's host does. Neither sees a question in the clear on our side, and neither keeps one.</div></div>
+<div class="row"><div class="what">Your browser</div><div class="how">It keeps one yes flag once you pass the adults-only notice, and whatever you choose to save. The microphone uses your browser's own speech service; type when it must stay fully private.</div></div>
+
+<h2>On your side</h2>
+<p>We keep nothing. The rest is on your device, your browser and your network, and those are yours to set. Five habits cover it.</p>
+<div class="row"><div class="what">Private window</div><div class="how">Open Ghost Mode in a private or incognito window. When you close it, the browser forgets the page, the password and the yes flag.</div></div>
+<div class="row"><div class="what">Type it</div><div class="how">The microphone uses your browser's own speech service. Typing goes only to us.</div></div>
+<div class="row"><div class="what">Your own network</div><div class="how">A work or school network sees which sites you reach, so use your own connection or your phone's.</div></div>
+<div class="row"><div class="what">Your own device</div><div class="how">On a managed or shared device, the owner can see the screen. Use a device only you control.</div></div>
+<div class="row"><div class="what">Save, then close</div><div class="how">The report exists only on your screen. Save it where you choose, then close the tab, and it is gone from everywhere else.</div></div>
+<div class="ai" style="margin-top:16px"><a href="./#q=Outline%20the%20best%20way%20to%20keep%20a%20sensitive%20question%20private%20on%20my%20side%3A%20device%2C%20browser%2C%20network%20and%20how%20I%20save%20the%20report.%20Lawful%20steps%20only.">Ask the Board how to keep this private</a><a href="https://askboard.ai/gg" target="_blank" rel="noopener">Talk it through with Gigi</a></div>
+<p class="fine">The first opens Ghost Mode itself with that question ready. The second opens AskBoard's door, a live conversation on the main site under its own terms.</p>
+
+<h2>Outside review</h2>
+<div class="row"><div class="what pend">Independent review</div><div class="how">A reviewer with no stake in AskBoard reads this code and this machine and signs a letter we publish here. Not yet done. Until it is, this page is our word plus what you can check above.</div></div>
+
+<p class="fine" style="margin-top:28px">The names of the AI and the tools behind it stay off this page on purpose. A digest identifies the exact file without naming it, and the published code shows every place a byte could go.</p>
+
+<footer>Zero Point Collective LLC · <a href="privacy">Privacy</a> · <a href="terms">Terms</a> · <a href="mailto:hello@askboard.ai">hello@askboard.ai</a></footer>
+</div>
+<script>
+const REPO="";  /* set to the public address of the published code; empty keeps the outside-AI buttons off */
+(async()=>{
+ const $=s=>document.querySelector(s);
+ if(REPO){
+  $("#repo").innerHTML=`Published copy: <a href="${REPO}">${REPO.replace(/^https?:\/\//,"")}</a>. Compare its digests with the ones above.`;
+  const here=location.origin+location.pathname.replace(/\/$/,"");
+  const q=encodeURIComponent(`Please check a privacy claim for me. A service called Ghost Mode says a question typed into it is answered on one machine, never stored, never logged with its text, and never sent to any outside AI company. The code that handles the question is published at ${REPO} and a live page at ${here} shows the digests of the files running right now. Read the code and the page and tell me plainly: 1) Does the code store the question anywhere, to disk, a database or a log? 2) Does it send the question to any outside service? 3) Do the published files match the live digests? 4) What does this proof cover, and what does it not cover (for example, things only an independent audit could confirm)? Be strict and specific.`);
+  $("#ai").innerHTML=[["ChatGPT","https://chatgpt.com/?q="+q],["Claude","https://claude.ai/new?q="+q],["Grok","https://grok.com/?q="+q],["Perplexity","https://www.perplexity.ai/search?q="+q]].map(([n,u])=>`<a href="${u}" target="_blank" rel="noopener">Check it with ${n}</a>`).join("");
+ }
+ try{
+  const base=location.pathname.replace(/\/verify\/?$/,"");
+  const r=await fetch(base+"/api/fingerprint",{cache:"no-store"});if(!r.ok)throw 0;const f=await r.json();
+  const code=Object.entries(f.code||{});
+  $("#code").innerHTML=code.map(([n,h])=>`${n}<br>${h}`).join("<br>")||"no files reported";
+  const m=f.model||{};
+  $("#model").textContent=m.status==="ok"?`weights file, ${(m.bytes/1e9).toFixed(1)} GB\nsha256 ${m.sha256}`:m.status==="computing"?"digest being computed, reload in a minute":"weights file not found from here ("+m.status+")";
+  $("#model").style.whiteSpace="pre-wrap";
+  $("#engine").textContent=f.engine+(f.engine_on_this_machine?"  (this machine)":"  (NOT this machine)");
+  $("#stores").textContent=f.stores;
+  $("#logs").textContent="access log "+f.access_log+", password required: "+(f.password_required?"yes":"no");
+  $("#docs").textContent=f.archive_documents+" public documents";
+  $("#cmd").textContent="shasum -a 256 "+code.map(([n])=>n).join(" ");
+  const good=f.engine_on_this_machine&&f.password_required&&f.access_log==="off";
+  $("#seal").classList.toggle("warn",!good);
+  $("#seal-h").textContent=good?"Live from the machine: answered here, kept nowhere.":"Live from the machine: something is not as promised.";
+  $("#seal-s").textContent="Checked "+new Date(f.checked_at).toLocaleString()+", process started "+new Date(f.started).toLocaleString()+".";
+ }catch(e){
+  $("#seal").classList.add("warn");$("#seal-h").textContent="The machine did not answer.";$("#seal-s").textContent="It may be down. When it is down, nothing is running and nothing is kept. Try again in a minute.";
+  document.querySelectorAll("#live .ev").forEach(x=>x.textContent="unavailable");
+ }
+})();
+</script>
+</body>
+</html>
