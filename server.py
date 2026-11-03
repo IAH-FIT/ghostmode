@@ -126,7 +126,7 @@ def verdict_score(d, default=50):
     """Position on the 0-100 line from the seat's own words: yes sits at its certainty, no at the mirror, undecided at 50.
     The number can never contradict the verdict (three-lab runs, 2026-11-03: eight seats said no, scores ran 10 to 95).
     A reply without a readable verdict falls back to a plain SCORE line, then to the default."""
-    v = re.match(r"\W*(yes|no|undecided|unsure|split)", d.get("VERDICT") or "", re.I)
+    v = re.match(r"\W*(yes|no|undecided|unsure|split)\b", d.get("VERDICT") or "", re.I)
     if not v:
         return num(d.get("SCORE"), default)
     sure = max(50, min(100, num(d.get("SURE"), 75)))

@@ -130,6 +130,8 @@ print("one-line verdict and advice tests pass")
 assert S.verdict_score({"VERDICT": "No, it did not.", "SURE": "95"}) == 5 and S.verdict_score({"VERDICT": "yes", "SURE": "80"}) == 80
 assert S.verdict_score({"VERDICT": "Undecided", "SURE": "90"}) == 50 and S.verdict_score({"VERDICT": "no", "SURE": "20"}) == 50   # sure clamps to 50..100
 assert S.verdict_score({"SCORE": "30"}) == 30 and S.verdict_score({}, 64) == 64
+for _w in ("Not sure", "None", "Nope", "Nobody knows", "Noted, yes"):   # a word that only starts with yes or no is not a verdict (2026-11-03 review: Not sure scored 10)
+    assert S.verdict_score({"VERDICT": _w, "SURE": "90"}, 50) == 50, _w
 print("verdict score tests pass")
 
 # numbered claim lists read like dashed ones; a fact that mentions "your" is still a fact; errors log the type only
