@@ -188,7 +188,10 @@ def write_page(q, seats, reacts, final_scores, d, blocked=None, prev=None):
     heard = "\n".join("- %s (%s): %s | reason: %s | risk: %s" % (SEATS[s["seat"]][0], s["score"], s["position"], s["reason"], s["risk"]) for s in seats if not s.get("failed"))
     rx = "\n".join("- %s (%s, now %d): %s" % (SEATS[r["seat"]][0], r["stance"], r["score"], r["reply"]) for r in reacts)
     sys_p = brain.chair_prompt()
-    u = "<question>\n%s\n</question>\n\nFirst answers:\n%s\n\nReactions:\n%s\n\nFinal scores: %s. Direction: %s." % (q, heard, rx, final_scores, d)
+    said = {"for": "The room answers YES to the question as asked. Your HEADLINE answers yes.",
+            "against": "The room answers NO to the question as asked. Your HEADLINE answers no.",
+            "split": "The room is split. Your HEADLINE says the Board is split and names the one point it turns on."}[d]
+    u = "<question>\n%s\n</question>\n\nFirst answers:\n%s\n\nReactions:\n%s\n\nFinal scores: %s. %s" % (q, heard, rx, final_scores, said)
     if blocked:
         u += ("\n\nYour earlier draft:\n%s\n\nThe fact-checkers blocked these claims. Remove each one, or restate it so it is certainly true, "
               "then rewrite every section.\nBlocked:\n%s" % (prev_text(prev), "\n".join("- " + b for b in blocked)))
