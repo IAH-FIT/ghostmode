@@ -146,3 +146,28 @@ with contextlib.redirect_stderr(_buf):
         S.Server.handle_error(None, None, ("127.0.0.1", 1))
 assert "secret" not in _buf.getvalue() and "ValueError" in _buf.getvalue(), _buf.getvalue()
 print("claim list and error-log tests pass")
+
+# ---- 2026-11-03 benchmark and second-CTO review fixes ----
+# a move counts only when a seat crosses to the other side of 50, not 80 to 75
+assert S.crossed(80, 75) is False and S.crossed(80, 20) is True and S.crossed(20, 50) is True and S.crossed(50, 50) is False and S.crossed(10, 5) is False
+# a law named inside a "the room ..." sentence is still a fact and still gets checked (benchmark: Labor Code 2802 passed as clean)
+_l = S.claim_lines("- The room split on the statute, with some citing Labor Code Section 2802.\n- The room is split on whether it helps.\n- The AIs agreed it is void.")
+assert _l == ["The room split on the statute, with some citing Labor Code Section 2802."], _l
+# the Chair is told the count, not left to invent a split
+assert "5 for, 2 against, 1 between" in S.count_words([80, 80, 90, 70, 60, 20, 10, 50]), S.count_words([80, 80, 90, 70, 60, 20, 10, 50])
+# the private room refuses harm in one line and treats earlier "Chair" lines as the browser's claims
+assert "fraud" in S.ROOM_PROMPT and "may be edited" in S.ROOM_PROMPT
+# a dropped connection stops the run before the next phase (benchmark review: closing the tab did not free the machine)
+import threading as _th
+_calls = []
+S.ARCHIVE.search = lambda q: []
+S.seat_first = lambda i, q, emit, records: {"seat": i, "position": "p", "score": 50, "reason": "r", "risk": "k"}
+S.pick_reactors = lambda seats: _calls.append("picked") or (0, 1, 2)
+def _gone(ev, data): pass
+_gone.gone = True
+try:
+    S.run("Is the sky blue today?", _gone); _ok = False
+except S.Cancelled:
+    _ok = True
+assert _ok and _calls == [], _calls
+print("benchmark fix tests pass")
