@@ -201,3 +201,7 @@ assert "Tonkin record" in _seen["rec"], _seen
 _fin = [d for ev, d in _out if ev == "final"][0]
 assert [r["source"] for r in _fin["page"]["records"]] == ["t.txt"] and _fin["page"]["evidence"][0]["ok"] == 3, _fin["page"]
 print("run passes the claim's record to the checkers")
+# statements about the vote are not facts about the world (new-records run: "The count is seven for and one against" was flagged as a doubtful fact)
+_c = S.claim_lines("- One AI initially disagreed but corrected its position.\n- The count is seven for and one against.\n- Seven of the eight AIs agreed.\n- The Boeing 737 MAX MCAS used one angle-of-attack sensor.\n- No AI system can verify this alone in 2024.")
+assert _c == ["The Boeing 737 MAX MCAS used one angle-of-attack sensor.", "No AI system can verify this alone in 2024."], _c
+print("vote statements are not claims")

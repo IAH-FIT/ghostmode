@@ -223,7 +223,7 @@ def write_page(q, seats, reacts, final_scores, d, blocked=None, prev=None):
 MAX_CLAIMS = 10  # keeps each checker call inside its 4k slot
 
 
-NOT_A_FACT = re.compile(r"\b(the board(?! of)|the ais?|ais\b|the room|the seats?|the chair|would change the answer|next step|the split)\b|\bshould\b|^(you|your)\b", re.I)
+NOT_A_FACT = re.compile(r"\b(the board(?! of)|the ais?|ais\b|the room|the seats?|the chair|would change the answer|next step|the split|the count|(?:one|two|three|four|five|six|seven|eight|all|most|some|each|every)(?: of the (?:eight )?)? ?AIs?)\b|\bshould\b|^(you|your)\b", re.I)
 
 
 CITES = re.compile(r"\b(Act|Code|Section|Article|Amendment|Statute|Regulation|Directive)\b|\bv\.|§")
