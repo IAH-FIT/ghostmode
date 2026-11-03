@@ -53,12 +53,12 @@ footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-si
 <h2>What is running right now</h2>
 <div id="live">
  <div class="row"><div class="what">The code</div><div class="how">Every file that handles your question, with the digest of the copy that is running. Compare it with the published copy below.</div><div class="ev" id="code">…</div></div>
- <div class="row"><div class="what">The AI</div><div class="how">One AI, a weights file on this machine's own disk. No account with any outside AI company exists.</div><div class="ev" id="model">…</div></div>
- <div class="row"><div class="what">The engine address</div><div class="how">The code refuses to start unless the AI answers at this machine's own loopback address. There is no override.</div><div class="ev" id="engine">…</div></div>
+ <div class="row"><div class="what">The AIs</div><div class="how">Three AIs from three labs, each a weights file on this machine's own disk. No account with any outside AI company exists.</div><div class="ev" id="model">…</div></div>
+ <div class="row"><div class="what">The engine address</div><div class="how">The code refuses to start unless every AI answers at this machine's own loopback address. There is no override.</div><div class="ev" id="engine">…</div></div>
  <div class="row"><div class="what">Storage</div><div class="how">No database, no files, no cache. The question, the argument and the answer live in memory for the run and are gone when it ends.</div><div class="ev" id="stores">…</div></div>
  <div class="row"><div class="what">Logs</div><div class="how">Access log off. Errors are logged by type only, never with text. The engine's log holds timings, not words.</div><div class="ev" id="logs">…</div></div>
  <div class="row"><div class="what">Your sign-in</div><div class="how">An AskBoard sign-in stays on AskBoard. The website drops every cookie before a request is forwarded here, so this machine never learns who asked. This line is what arrived with your own page load.</div><div class="ev" id="cookie">…</div></div>
- <div class="row"><div class="what">Records on file</div><div class="how">Public primary documents the seats may quote. Besides its own code and the AI's weights, they are the only files this machine reads, and none of them is yours.</div><div class="ev" id="docs">…</div></div>
+ <div class="row"><div class="what">Records on file</div><div class="how">Public primary documents the seats may quote. Besides its own code and the AIs' weights, they are the only files this machine reads, and none of them is yours.</div><div class="ev" id="docs">…</div></div>
 </div>
 
 <h2>Check it yourself</h2>
@@ -87,7 +87,7 @@ footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-si
 <h2>Outside review</h2>
 <div class="row"><div class="what pend">Independent review</div><div class="how">A reviewer with no stake in AskBoard reads this code and this machine and signs a letter we publish here. Not yet done. Until it is, this page is our word plus what you can check above.</div></div>
 
-<p class="fine" style="margin-top:28px">The names of the AI and the tools behind it stay off this page on purpose. A digest identifies the exact file without naming it, and the published code shows every place a byte could go.</p>
+<p class="fine" style="margin-top:28px">The names of the AIs and the tools behind them stay off this page on purpose. A digest identifies the exact file without naming it, and the published code shows every place a byte could go.</p>
 
 <footer>Zero Point Collective LLC · <a href="privacy">Privacy</a> · <a href="terms">Terms</a> · <a href="mailto:hello@askboard.ai">hello@askboard.ai</a></footer>
 </div>
@@ -106,8 +106,8 @@ const REPO="https://github.com/IAH-FIT/ghostmode";  /* the published code; empty
   const r=await fetch(base+"/api/fingerprint",{cache:"no-store"});if(!r.ok)throw 0;const f=await r.json();
   const code=Object.entries(f.code||{});
   $("#code").innerHTML=code.map(([n,h])=>`${n}<br>${h}`).join("<br>")||"no files reported";
-  const m=f.model||{};
-  $("#model").textContent=m.status==="ok"?`weights file, ${(m.bytes/1e9).toFixed(1)} GB\nsha256 ${m.sha256}`:m.status==="computing"?"digest being computed, reload in a minute":"weights file not found from here ("+m.status+")";
+  const ms=f.models||[f.model||{}];
+  $("#model").textContent=ms.map((m,i)=>m.status==="ok"?`AI ${i+1}: weights file, ${(m.bytes/1e9).toFixed(1)} GB\nsha256 ${m.sha256}`:m.status==="computing"?"digest being computed, reload in a minute":`AI ${i+1}: weights file not found from here (${m.status})`).join("\n\n");
   $("#model").style.whiteSpace="pre-wrap";
   $("#engine").textContent=f.engine+(f.engine_on_this_machine?"  (this machine)":"  (NOT this machine)");
   $("#stores").textContent=f.stores;

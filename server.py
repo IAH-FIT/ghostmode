@@ -20,8 +20,26 @@ def engine_is_local(url):
     return u.scheme == "http" and u.hostname in ("127.0.0.1", "localhost", "::1") and u.username is None
 
 
-if not engine_is_local(ENGINE):
-    sys.exit("QB_ENGINE must be this machine: http://127.0.0.1, localhost or [::1]")
+# Three AIs from three labs, each its own engine on this machine. One engine still works: every role then shares it.
+ENGINES = [u.strip() for u in os.environ.get("QB_ENGINES", ENGINE).split(",") if u.strip()]
+if not ENGINES or not all(engine_is_local(u) for u in ENGINES):
+    sys.exit("every engine must be this machine: http://127.0.0.1, localhost or [::1]")
+ENGINE = ENGINES[0]
+CHAIR_ENGINE = int(os.environ.get("QB_CHAIR", "0")) % len(ENGINES)
+
+
+def seat_engine(i):
+    """Seats are dealt round the engines, so every lab has a voice in the blind round and on stage."""
+    return i % len(ENGINES)
+
+
+def checker_engine(ci):
+    """Fact-checkers and the Reader never run on the Chair's engine when another exists: no AI checks its own work."""
+    others = [e for e in range(len(ENGINES)) if e != CHAIR_ENGINE] or [CHAIR_ENGINE]
+    return others[ci % len(others)]
+
+
+READER_ENGINE = checker_engine(len(ENGINES))   # with three engines, the lab that does not run the first checker
 PORT = int(os.environ.get("QB_PORT", "8090"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 MAX_Q = 1500
@@ -52,6 +70,9 @@ import brain
 def parse(text, keys):
     """Pull 'KEY: value' sections (values may run over several lines) out of the model's reply."""
     out = {}
+    if keys and all(k.isdigit() for k in keys):   # numbered verdicts: some AIs write "1." or "1)" where others write "1:"
+        text = re.sub(r"\s+(?=\d+\s*[:.)]\s*(?:N\s*:\s*)?(?:ok|doubtful|wrong)\b)", "\n", text, flags=re.I)   # all verdicts on one line: one per line
+        text = re.sub(r"^(\s*[*_#]*\d+[*_]*)\s*[.)]\s*([*_]*)\s+", r"\1\2: ", text, flags=re.M)
     alt = "|".join(re.escape(k) for k in keys)
     pat = r"^\s*[*_#]*(%s)[*_]*\s*:\s*[*_]*\s*(.*?)(?=^\s*[*_#]*(?:%s)[*_]*\s*:|\Z)" % (alt, alt)
     for m in re.finditer(pat, text, re.S | re.M | re.I):
@@ -59,7 +80,7 @@ def parse(text, keys):
     return out
 
 
-def call(system, user, keys, need, max_tokens, temp=0.5, progress=None):
+def call(system, user, keys, need, max_tokens, temp=0.5, progress=None, engine=0):
     """One model call. Retries once if a needed line is missing or the reply was cut off."""
     body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "max_tokens": max_tokens, "temperature": temp, "top_p": 0.9,
@@ -67,7 +88,7 @@ def call(system, user, keys, need, max_tokens, temp=0.5, progress=None):
     last = None
     for attempt in range(2):
         try:
-            req = urllib.request.Request(ENGINE, json.dumps(body).encode(), {"Content-Type": "application/json"})
+            req = urllib.request.Request(ENGINES[engine % len(ENGINES)], json.dumps(body).encode(), {"Content-Type": "application/json"})
             resp = urllib.request.urlopen(req, timeout=120)
             if progress:  # real progress: count the words as the engine writes them
                 text, n, finish = "", 0, None
@@ -96,6 +117,18 @@ def call(system, user, keys, need, max_tokens, temp=0.5, progress=None):
     raise RuntimeError("engine: %s" % last)
 
 
+def verdict_score(d, default=50):
+    """Position on the 0-100 line from the seat's own words: yes sits at its certainty, no at the mirror, undecided at 50.
+    The number can never contradict the verdict (three-lab runs, 2026-11-03: eight seats said no, scores ran 10 to 95).
+    A reply without a readable verdict falls back to a plain SCORE line, then to the default."""
+    v = re.match(r"\W*(yes|no|undecided|unsure|split)", d.get("VERDICT") or "", re.I)
+    if not v:
+        return num(d.get("SCORE"), default)
+    sure = max(50, min(100, num(d.get("SURE"), 75)))
+    w = v.group(1).lower()
+    return sure if w == "yes" else 100 - sure if w == "no" else 50
+
+
 def num(s, default=50):
     m = re.search(r"\d+", s or "")
     return max(0, min(100, int(m.group()))) if m else default
@@ -105,10 +138,10 @@ def seat_first(i, q, emit=None, records=""):
     name, role, temp = SEATS[i]
     sys_p = brain.seat_prompt(name, role)
     u = "The person's question or idea:\n<question>\n%s\n</question>" % q + ("\n\n" + records if records and i in RECORD_SEATS else "")
-    d = call(sys_p, u, ["POSITION", "REASON", "RISK", "SCORE"],
-             ["POSITION", "SCORE"], 170, temp,
+    d = call(sys_p, u, ["POSITION", "VERDICT", "REASON", "RISK", "SURE", "SCORE"],
+             ["POSITION", "VERDICT"], 190, temp, engine=seat_engine(i),
              progress=(lambda n: n % 3 == 0 and emit("prog", {"i": i, "n": n})) if emit else None)
-    return {"seat": i, "position": d["POSITION"], "reason": d.get("REASON", ""), "risk": d.get("RISK", ""), "score": num(d["SCORE"])}
+    return {"seat": i, "position": d["POSITION"], "reason": d.get("REASON", ""), "risk": d.get("RISK", ""), "score": verdict_score(d)}
 
 
 def pick_reactors(seats):
@@ -134,8 +167,8 @@ def react(i, q, seats, others):
     me = seats[i]
     sys_p = brain.react_prompt(name, role)
     d = call(sys_p, "<question>\n%s\n</question>\n\nYour first answer (score %d): %s\n\nThe others said:\n%s" % (q, me["score"], me["position"], heard),
-             ["REPLY", "STANCE", "SCORE"], ["REPLY", "STANCE"], 150, temp)
-    new = num(d.get("SCORE"), me["score"])
+             ["REPLY", "STANCE", "VERDICT", "SURE", "SCORE"], ["REPLY", "STANCE"], 170, temp, engine=seat_engine(i))
+    new = verdict_score(d, me["score"])
     moved = d["STANCE"].lower().startswith("move") and new != me["score"]   # "move" with the same score is a hold
     return {"seat": i, "reply": d["REPLY"], "stance": "move" if moved else "hold", "score": new if moved else me["score"]}
 
@@ -159,7 +192,7 @@ def write_page(q, seats, reacts, final_scores, d, blocked=None, prev=None):
     if blocked:
         u += ("\n\nYour earlier draft:\n%s\n\nThe fact-checkers blocked these claims. Remove each one, or restate it so it is certainly true, "
               "then rewrite every section.\nBlocked:\n%s" % (prev_text(prev), "\n".join("- " + b for b in blocked)))
-    r = call(sys_p, u, ["HEADLINE", "ANSWER", "HOLDS", "RISKS", "CHANGE", "CLAIMS"], ["HEADLINE", "ANSWER"], 420, 0.4)
+    r = call(sys_p, u, ["HEADLINE", "ANSWER", "HOLDS", "RISKS", "CHANGE", "CLAIMS"], ["HEADLINE", "ANSWER"], 420, 0.4, engine=CHAIR_ENGINE)
     split = lambda t: [x.strip(" -*") for x in (t or "").split("|") if x.strip(" -*")][:3]
     return {"headline": r["HEADLINE"], "answer": r["ANSWER"], "holds": split(r.get("HOLDS")), "risks": split(r.get("RISKS")),
             "would_change": r.get("CHANGE", ""), "claims": claim_lines(r.get("CLAIMS", ""))}
@@ -168,9 +201,14 @@ def write_page(q, seats, reacts, final_scores, d, blocked=None, prev=None):
 MAX_CLAIMS = 10  # keeps each checker call inside its 4k slot
 
 
+NOT_A_FACT = re.compile(r"\b(the board(?! of)|the ais?|ais\b|the room|the seats?|the chair|would change the answer|next step|split)\b|\b(should|must|you|your)\b", re.I)
+
+
 def claim_lines(raw):
-    """The '- ' lines of a CLAIMS block. NONE, prose or an empty block give []."""
-    return [l.strip()[1:].strip() for l in (raw or "").splitlines() if l.strip().startswith(("-", "*")) and len(l.strip()) > 2]
+    """The '- ' lines of a CLAIMS block. NONE, prose or an empty block give []. Statements about the room and advice are
+    dropped: they are not facts about the world, and checking them flags true pages (three-lab runs, 2026-11-03)."""
+    out = [l.strip()[1:].strip() for l in (raw or "").splitlines() if l.strip().startswith(("-", "*")) and len(l.strip()) > 2]
+    return [c for c in out if not NOT_A_FACT.search(c)]
 
 
 def page_text(page):
@@ -182,7 +220,7 @@ def extract_claims(page):
     """A second, independent read of the finished page: every sentence, every fact about the world, so the checkers test
     what the person will actually read and not only what the Chair chose to list (expert audit, 2026-11-02)."""
     sys_p = brain.reader_prompt()
-    d = call(sys_p, "Page:\n%s" % page_text(page), ["CLAIMS"], ["CLAIMS"], 320, 0.1)
+    d = call(sys_p, "Page:\n%s" % page_text(page), ["CLAIMS"], ["CLAIMS"], 320, 0.1, engine=READER_ENGINE)
     found = claim_lines(d["CLAIMS"])
     if not found and d["CLAIMS"].strip().upper() != "NONE":
         raise ValueError("Reader answered in prose")   # prose is not a reading; the caller marks the run partial
@@ -209,10 +247,10 @@ def fact_check(ci, page, records=""):
     sys_p = brain.checker_prompt(name, power)
     keys = [str(i + 1) for i in range(len(claims))]
     u = "Page:\n%s\n\nClaims to check:\n%s" % (text, numbered) + ("\n\n" + records if records else "")
-    d = call(sys_p, u, keys, keys, 40 + 35 * len(claims), 0.1)
+    d = call(sys_p, u, keys, keys, 40 + 35 * len(claims), 0.1, engine=checker_engine(ci))
     out = {}
     for k, v in d.items():
-        w = re.match(r"\W*(ok|doubtful|wrong)", v, re.I)
+        w = re.match(r"\W*(?:N\s*:\s*)?\W*(ok|doubtful|wrong)", v, re.I)   # some AIs echo the template's "N:" before the verdict
         out[int(k)] = w.group(1).lower() if w else "doubtful"
     return out
 
@@ -264,7 +302,7 @@ def room_reply(report, turns, msg):
         if isinstance(t, dict) and t.get("role") in ("you", "chair"):
             hist.append("%s: %s" % ("Person" if t["role"] == "you" else "Chair", clean(t.get("text"), ROOM_TURN)))
     u = "<report>\n%s\n</report>\n\n%sPerson: %s" % (clean(report, ROOM_REPORT), ("Conversation so far:\n" + "\n".join(hist) + "\n\n") if hist else "", clean(msg, ROOM_TURN))
-    return call(ROOM_PROMPT, u, ["REPLY"], ["REPLY"], 300, 0.5)["REPLY"]
+    return call(ROOM_PROMPT, u, ["REPLY"], ["REPLY"], 300, 0.5, engine=CHAIR_ENGINE)["REPLY"]
 
 
 def run(q, emit, doc="", docname=""):
@@ -366,8 +404,9 @@ def run(q, emit, doc="", docname=""):
 PRINT = {"code": {}, "model": {"status": "computing"}, "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
 
-def model_path():
-    """The weights file the engine was started with, read from the engine's own command line. None off Linux."""
+def model_paths():
+    """The weights file each engine was started with, read from the engines' own command lines, by port order. [] off Linux."""
+    found = []
     try:
         for pid in os.listdir("/proc"):
             if not pid.isdigit():
@@ -377,10 +416,11 @@ def model_path():
             except Exception:
                 continue
             if args and b"llama-server" in args[0] and b"--model" in args:
-                return args[args.index(b"--model") + 1].decode()
+                port = args[args.index(b"--port") + 1].decode() if b"--port" in args else ""
+                found.append((port, args[args.index(b"--model") + 1].decode()))
     except Exception:
         pass
-    return None
+    return [p for _, p in sorted(set(found))]
 
 
 def sha256_file(path):
@@ -398,13 +438,17 @@ def fingerprint():
         if os.path.exists(p):
             PRINT["code"][name] = sha256_file(p)
     def model():
-        p = model_path()
-        if not p:
+        ps = model_paths()
+        if not ps:
             PRINT["model"] = {"status": "engine not found"}; return
-        try:
-            PRINT["model"] = {"status": "ok", "bytes": os.path.getsize(p), "sha256": sha256_file(p)}
-        except Exception:
-            PRINT["model"] = {"status": "unreadable"}
+        out = []
+        for p in ps:
+            try:
+                out.append({"status": "ok", "bytes": os.path.getsize(p), "sha256": sha256_file(p)})
+            except Exception:
+                out.append({"status": "unreadable"})
+        PRINT["models"] = out
+        PRINT["model"] = out[0]
     threading.Thread(target=model, daemon=True).start()
 
 
@@ -413,7 +457,7 @@ def fingerprint_now():
         ARCHIVE.refresh()
     except Exception:
         pass
-    return {**PRINT, "engine": ENGINE, "engine_on_this_machine": engine_is_local(ENGINE),
+    return {**PRINT, "engine": ", ".join(ENGINES), "engines": len(ENGINES), "engine_on_this_machine": all(engine_is_local(u) for u in ENGINES),
             "password_required": bool(PASSWORD), "access_log": "off", "stores": "nothing: no database, no files, no cache",
             "archive_documents": len({i[0].get("source") or i[0].get("title") for i in ARCHIVE.items}) if ARCHIVE.items else 0,
             "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}

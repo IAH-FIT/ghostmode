@@ -85,3 +85,48 @@ assert "[R4]" in S.attach("q [R4]", "")   # the question itself is never rewritt
 import archive as _A2
 assert _A2.tokens("the government report") == [] and "northwoods" in _A2.tokens("Operation Northwoods")
 print("attach and stopword tests pass")
+
+# three engines: seats dealt round the labs; checkers and the Reader never on the Chair's engine
+_E, _C = S.ENGINES, S.CHAIR_ENGINE
+S.ENGINES, S.CHAIR_ENGINE = ["http://127.0.0.1:8081/x", "http://127.0.0.1:8082/x", "http://127.0.0.1:8083/x"], 0
+assert [S.seat_engine(i) for i in range(8)] == [0, 1, 2, 0, 1, 2, 0, 1]
+assert all(S.checker_engine(ci) != 0 for ci in range(3)) and {S.checker_engine(ci) for ci in range(3)} == {1, 2}
+assert S.checker_engine(len(S.ENGINES)) != 0
+S.CHAIR_ENGINE = 1; assert all(S.checker_engine(ci) != 1 for ci in range(4))
+S.ENGINES, S.CHAIR_ENGINE = ["http://127.0.0.1:8081/x"], 0; assert S.checker_engine(2) == 0   # one engine: everything shares it
+S.ENGINES, S.CHAIR_ENGINE = _E, _C
+import subprocess
+r = subprocess.run([sys.executable, "-B", "-c", "import server"], env={**os.environ, "QB_ENGINES": "http://127.0.0.1:8081/x,http://10.0.0.5:8082/x"}, capture_output=True, text=True, cwd=os.path.dirname(os.path.abspath(__file__)))
+assert r.returncode != 0 and "must be this machine" in r.stderr, r.stderr   # one remote engine and the server refuses to start
+print("three-engine tests pass")
+
+# numbered verdicts parse whether an AI writes "1:", "1." or "1)"
+for raw in ("1: ok | a\n2: wrong | b", "1. ok | a\n2. wrong | b", "1) ok | a\n2) wrong | b", "**1.** ok | a\n**2.** wrong | b"):
+    d = S.parse(raw, ["1", "2"]); assert d.get("1", "").startswith("ok") and d.get("2", "").startswith("wrong"), (raw, d)
+assert S.parse("SCORE. 40\nSCORE: 70", ["SCORE"]).get("SCORE") == "70"   # word keys still need a colon
+print("verdict format tests pass")
+
+# statements about the room and advice are not facts to check; facts stay
+_c = S.claim_lines("- The AIs were split on the cause.\n- The Board agrees it was staged.\n- You should wait a year.\n- A proven manager would change the answer.\n- The Gulf of Tonkin Resolution passed on August 7, 1964.\n- The Senate vote was 88 to 2.")
+assert _c == ["The Gulf of Tonkin Resolution passed on August 7, 1964.", "The Senate vote was 88 to 2."], _c
+print("claim hygiene tests pass")
+
+# a verdict behind an echoed template "N:" still reads; the board of a company is still a fact
+import types
+_orig = S.call
+S.call = lambda *a, **k: S.parse("1. N: ok | fine\n2. N: wrong | no", ["1", "2"])
+assert S.fact_check(0, {"headline": "h", "answer": "a", "holds": [], "risks": [], "would_change": "", "claims": ["x", "y"]}) == {1: "ok", 2: "wrong"}
+S.call = _orig
+assert S.claim_lines("- The board of Enron hid losses.\n- The Board agrees.") == ["The board of Enron hid losses."]
+print("echoed-template tests pass")
+
+# verdicts run together on one line still read; advice to the person is not a fact
+assert S.parse("1: doubtful | No evidence. 2: ok | Fine. 3. N: wrong | No.", ["1", "2", "3"]) == {"1": "doubtful | No evidence.", "2": "ok | Fine.", "3": "N: wrong | No."}, S.parse("1: doubtful | No evidence. 2: ok | Fine. 3. N: wrong | No.", ["1", "2", "3"])
+assert S.claim_lines("- The split turns on your ability to manage two sites.\n- The first location must stay stable.\n- The SBA 7(a) program is run by the Small Business Administration.") == ["The SBA 7(a) program is run by the Small Business Administration."]
+print("one-line verdict and advice tests pass")
+
+# the number follows the words: yes at its certainty, no mirrored, undecided at 50, old SCORE as fallback
+assert S.verdict_score({"VERDICT": "No, it did not.", "SURE": "95"}) == 5 and S.verdict_score({"VERDICT": "yes", "SURE": "80"}) == 80
+assert S.verdict_score({"VERDICT": "Undecided", "SURE": "90"}) == 50 and S.verdict_score({"VERDICT": "no", "SURE": "20"}) == 50   # sure clamps to 50..100
+assert S.verdict_score({"SCORE": "30"}) == 30 and S.verdict_score({}, 64) == 64
+print("verdict score tests pass")
