@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Quick Board on Qwen. One model, eight seat roles, three fact-checkers, zero outside services.
+"""Quick Board. Three AIs, eight seat roles, three fact-checkers, zero outside services.
 
 Flow: eight blind answers (parallel) -> pick reactors by code -> three reactions (parallel)
       -> count -> one writer -> three fact-checkers (parallel) -> fix blocked claims -> final.
@@ -423,7 +423,7 @@ def model_paths():
                 args = open("/proc/%s/cmdline" % pid, "rb").read().split(b"\0")
             except Exception:
                 continue
-            if args and b"llama-server" in args[0] and b"--model" in args:
+            if args and b"--model" in args and b"--port" in args:
                 port = args[args.index(b"--port") + 1].decode() if b"--port" in args else ""
                 found.append((port, args[args.index(b"--model") + 1].decode()))
     except Exception:

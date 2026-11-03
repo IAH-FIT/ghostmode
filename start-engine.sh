@@ -1,17 +1,16 @@
 #!/bin/sh
-# Ghost Mode engines: three AIs from three labs, each its own llama.cpp server on this machine's loopback address.
-# 8081 Qwen (Alibaba), 8082 Gemma (Google), 8083 Mistral (Mistral AI). Four parallel slots each, 4k tokens a slot.
-# --log-disable: the engines log nothing; their output goes nowhere.
-pkill -f "llama-server --model"; sleep 2
-BIN=/root/llama.cpp/build/bin/llama-server
-M=/root/models
+# Ghost Mode engines: three AIs from three labs, each its own server on this machine's loopback address.
+# Which AIs they are lives in /root/models.conf on the machine. The Verify page gives each weights file's digest, so the check needs no names.
+# Four parallel slots each, 4k tokens a slot. Logging is switched off: the engines write nothing, their output goes nowhere.
+. /root/models.conf || { echo models.conf missing; exit 1; }   # BIN (engine program), M (weights folder), W1 W2 W3 (weights files)
+pkill -f -- "--model $M/"; sleep 2
 start() {  # $1 port, $2 weights file
   nohup $BIN --model "$M/$2" --host 127.0.0.1 --port $1 --no-webui --offline --jinja -np 4 -c 16384 \
     --flash-attn on --cache-type-k q8_0 --cache-type-v q8_0 -b 512 -ub 512 -ngl 999 --log-disable > /dev/null 2>&1 &
 }
-start 8081 Huihui-Qwen3.8-27B-abliterated-UD-DW-Q4_K_M.gguf
-start 8082 gemma-4-31B-it-abliterated.Q4_K_M.gguf
-start 8083 Huihui-Mistral-Small-3.2-24B-Instruct-2506-abliterated-llamacppfixed.Q4_K_M.gguf
+start 8081 $W1
+start 8082 $W2
+start 8083 $W3
 export QB_ENGINES=http://127.0.0.1:8081/v1/chat/completions,http://127.0.0.1:8082/v1/chat/completions,http://127.0.0.1:8083/v1/chat/completions
 for i in $(seq 1 150); do
   curl -sf http://127.0.0.1:8081/health >/dev/null && curl -sf http://127.0.0.1:8082/health >/dev/null && curl -sf http://127.0.0.1:8083/health >/dev/null \
