@@ -160,9 +160,14 @@ class Cancelled(Exception):
     """The visitor's connection dropped: stop before the next phase and free the machine."""
 
 
+def category(score):
+    """Where a seat stands: for at 60 and above, against at 40 and below, between otherwise. The one definition behind the labels, the tally and the count."""
+    return "for" if score >= 60 else "against" if score <= 40 else "between"
+
+
 def crossed(old, new):
-    """A seat moved only when it changed sides of 50, not when its certainty shifted."""
-    return (old > 50) != (new > 50) or (old < 50) != (new < 50)
+    """A seat changed position when its category changed. A move inside one category (75 to 65) is a shift in certainty, not a changed position."""
+    return category(old) != category(new)
 
 
 def count_words(scores):
@@ -195,13 +200,14 @@ def react(i, q, seats, others):
     d = call(sys_p, "<question>\n%s\n</question>\n\nYour first answer (score %d): %s\n\nThe others said:\n%s" % (q, me["score"], me["position"], heard),
              ["REPLY", "STANCE", "VERDICT", "SURE", "SCORE"], ["REPLY", "STANCE"], 170, temp, engine=seat_engine(i))
     new = verdict_score(d, me["score"])
-    moved = d["STANCE"].lower().startswith("move") and new != me["score"]   # "move" with the same score is a hold
-    return {"seat": i, "reply": d["REPLY"], "stance": "move" if moved else "hold", "score": new if moved else me["score"]}
+    said_move = d["STANCE"].lower().startswith("move") and new != me["score"]   # "move" with the same score is a hold
+    moved = said_move and crossed(me["score"], new)   # the label says "moved" only for a changed position, the same rule the tally counts
+    return {"seat": i, "reply": d["REPLY"], "stance": "move" if moved else "hold", "score": new if said_move else me["score"]}
 
 
 def direction(scores):
-    f = sum(1 for s in scores if s >= 60)
-    a = sum(1 for s in scores if s <= 40)
+    f = sum(1 for s in scores if category(s) == "for")
+    a = sum(1 for s in scores if category(s) == "against")
     n = len(scores)
     return ("for" if f * 8 >= n * 5 else "against" if a * 8 >= n * 5 else "split"), f, a, n - f - a   # five of eight; 3 of 5 is split on purpose, a thin room needs a clearer majority
 
@@ -240,7 +246,7 @@ CITES = re.compile(r"\b(Act|Code|Section|Article|Amendment|Statute|Regulation|Di
 def claim_lines(raw):
     """The '- ' lines of a CLAIMS block. NONE, prose or an empty block give []. Statements about the room and advice are
     dropped: they are not facts about the world, and checking them flags true pages (three-lab runs, 2026-11-03)."""
-    out = [re.sub(r"^(?:[-*]|\d+[.)])\s*", "", l.strip()) for l in (raw or "").splitlines() if re.match(r"\s*(?:[-*]|\d+[.)])\s*\S", l)]
+    out = [re.sub(r"^(?:[-*]\s*|\d+[.)]\s+)", "", l.strip()) for l in (raw or "").splitlines() if re.match(r"\s*(?:[-*]\s*|\d+[.)]\s+)\S", l)]   # a list marker needs a space after its dot: "8.5 percent" keeps its 8
     return [c for c in out if not NOT_A_FACT.search(c) or CITES.search(c)]   # a statute named inside a room sentence is still a fact to check
 
 

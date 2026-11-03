@@ -149,7 +149,7 @@ print("claim list and error-log tests pass")
 
 # ---- 2026-11-03 benchmark and second-CTO review fixes ----
 # a move counts only when a seat crosses to the other side of 50, not 80 to 75
-assert S.crossed(80, 75) is False and S.crossed(80, 20) is True and S.crossed(20, 50) is True and S.crossed(50, 50) is False and S.crossed(10, 5) is False
+assert S.crossed(80, 75) is False and S.crossed(80, 20) is True and S.crossed(20, 50) is True and S.crossed(50, 50) is False and S.crossed(10, 5) is False   # category change: for 60 and up, against 40 and down
 # a law named inside a "the room ..." sentence is still a fact and still gets checked (benchmark: Labor Code 2802 passed as clean)
 _l = S.claim_lines("- The room split on the statute, with some citing Labor Code Section 2802.\n- The room is split on whether it helps.\n- The AIs agreed it is void.")
 assert _l == ["The room split on the statute, with some citing Labor Code Section 2802."], _l
@@ -357,3 +357,44 @@ _cl = K.Claims(["A claim."]); _cl.cut = True; K.extract_claims = lambda page: _c
 _o = []; K.chat_turn("A question that is long enough?", [], lambda ev, d: _o.append((ev, d)))
 assert [d for ev, d in _o if ev == "final"][0]["status"] == "partial", "chat turns degrade the same way"
 print("reader fix tests pass")
+
+# ---- one definition of "moved" and decimal-safe claim lines (sister check with AskBoard, 2026-11-03) ----
+Z = _fresh("server_z")
+# claim_lines: a list marker needs a space after its dot, so a figure keeps its first digits
+assert Z.claim_lines("- 8.5 percent is the loan rate.\n- 0.5 points is the fee.\n- 3.14 is pi.") == ["8.5 percent is the loan rate.", "0.5 points is the fee.", "3.14 is pi."]
+assert Z.claim_lines("1. 8.5 percent is the loan rate.\n2) x is true.\n3. 3.14 is pi.") == ["8.5 percent is the loan rate.", "x is true.", "3.14 is pi."]   # only the marker is stripped
+assert Z.claim_lines("8.5 percent is the loan rate.") == [], "an unmarked line is prose: dropped whole, never rewritten as 5 percent"
+# category: the same lines everywhere, and a node run proves the page's own function agrees on every score
+import subprocess, re as _re
+_js = _re.search(r"const cat=(x=>[^;]+);", open(os.path.join(_here, "page.src.html")).read()).group(1)
+_out = subprocess.run(["node", "-e", "const cat=%s;console.log(JSON.stringify(Array.from({length:101},(_,i)=>cat(i))))" % _js], capture_output=True, text=True)
+if _out.returncode == 0:
+    assert json.loads(_out.stdout) == [Z.category(i) for i in range(101)], "page and machine disagree on a category"
+assert [Z.category(x) for x in (0, 40, 41, 50, 59, 60, 100)] == ["against", "against", "between", "between", "between", "for", "for"]
+# react(): the card label, the score and the tally rule agree on a grid of before and after scores (a same-category shift of certainty is NOT a changed position)
+_cases = [(75, 55, True), (75, 65, False), (59, 60, True), (60, 59, True), (41, 40, True), (40, 41, True), (50, 55, False), (20, 5, False), (80, 80, False)]
+for old, new, want_moved in _cases:
+    Z.call = lambda *a, _n=new, **k: {"REPLY": "r", "STANCE": "move", "VERDICT": "yes", "SURE": str(_n), "SCORE": ""}
+    Z.verdict_score = lambda d, default=50, _n=new: _n
+    r = Z.react(0, "q", [{"score": old, "position": "p", "reason": "r"}] + [{"score": 50, "position": "p", "reason": "r"}] * 7, [1, 2])
+    assert (r["stance"] == "move") == want_moved and r["stance"] == ("move" if Z.crossed(old, new) else "hold"), (old, new, r)
+    assert r["score"] == (new if new != old else old), (old, new, r)     # the dot still goes where the seat now stands
+# the page says "changed position" wherever the tally says N moved
+_pg2 = open(os.path.join(_here, "page.src.html")).read()
+assert "moved.`" not in _pg2 and _pg2.count("changed position.`") == 2 and "moved ${f} to ${x}" not in _pg2
+print("moved and decimal tests pass")
+
+# ---- no pop-up covers the report (N03 decision 2026-11-03: the timed "Save it now" sheet covered half the answer on a phone) ----
+_pg3 = open(os.path.join(_here, "page.src.html")).read()
+assert 'id="sheet"' not in _pg3 and "#sheet" not in _pg3 and "sh-later" not in _pg3, "the automatic report sheet is gone"
+assert not _re.search(r"setTimeout\(\(\)=>\{[^}]*classList\.add\(\"on\"\)", _pg3), "nothing opens a sheet on a timer after the report lands"
+assert 'el("p","fine","Save it before you close. This page clears after an hour of quiet.")' in _pg3, "the inline line sits under the report"
+assert 'id="close"' in _pg3 and "closeScreen" in _pg3 and "id=\"gate\"" in _pg3, "the close-and-shred sheet and the adults gate remain"
+print("no pop-up over the report tests pass")
+
+# every element the page script looks up by id must exist in the page (an edit removed #sheet and left $("#sh-copy") behind: the submit threw and no run started; found only in a browser, 2026-11-03)
+_ids = set(_re.findall(r'\bid="([A-Za-z0-9_-]+)"', _pg3)) | set(_re.findall(r"\.id=\"([A-Za-z0-9_-]+)\"", _pg3))
+_refs = set(_re.findall(r'\$\("#([A-Za-z0-9_-]+)"\)', _pg3)) | set(_re.findall(r'querySelector\("#([A-Za-z0-9_-]+)"\)', _pg3))
+assert not (_refs - _ids), "the page script looks up ids that do not exist: %s" % sorted(_refs - _ids)
+_pg3b = open(os.path.join(_here, "page.src.html")).read()
+print("page script ids all exist")
