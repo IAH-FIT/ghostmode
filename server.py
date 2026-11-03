@@ -80,6 +80,11 @@ def parse(text, keys):
     return out
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None   # an engine that answers with a redirect is an error, never a second destination
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)   # no environment proxy: the question only ever goes to the loopback engine
+
 def call(system, user, keys, need, max_tokens, temp=0.5, progress=None, engine=0):
     """One model call. Retries once if a needed line is missing or the reply was cut off."""
     body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -89,7 +94,7 @@ def call(system, user, keys, need, max_tokens, temp=0.5, progress=None, engine=0
     for attempt in range(2):
         try:
             req = urllib.request.Request(ENGINES[engine % len(ENGINES)], json.dumps(body).encode(), {"Content-Type": "application/json"})
-            resp = urllib.request.urlopen(req, timeout=120)
+            resp = _OPENER.open(req, timeout=120)
             if progress:  # real progress: count the words as the engine writes them
                 text, n, finish = "", 0, None
                 for raw in resp:
@@ -204,7 +209,7 @@ def write_page(q, seats, reacts, final_scores, d, blocked=None, prev=None):
 MAX_CLAIMS = 10  # keeps each checker call inside its 4k slot
 
 
-NOT_A_FACT = re.compile(r"\b(the board(?! of)|the ais?|ais\b|the room|the seats?|the chair|would change the answer|next step|split)\b|\b(should|must)\b|^(you|your)\b", re.I)
+NOT_A_FACT = re.compile(r"\b(the board(?! of)|the ais?|ais\b|the room|the seats?|the chair|would change the answer|next step|the split)\b|\bshould\b|^(you|your)\b", re.I)
 
 
 def claim_lines(raw):
@@ -366,8 +371,8 @@ def run(q, emit, doc="", docname=""):
         except Exception:
             found, read = [], False
         before = len(page["claims"])
+        overflow = max(0, len(merge_claims(page["claims"], found, cap=None)) - MAX_CLAIMS)   # counted before the cap, or a full list reads as complete
         page["claims"] = claims = merge_claims(page["claims"], found)
-        overflow = max(0, len(merge_claims(page["claims"], found, cap=None)) - MAX_CLAIMS)
         added = max(0, len(claims) - before)   # claims the Reader found that the Chair had left off, after duplicates
         blocked, doubts, ran = [], 0, 0
         ev = {"round": rounds + 1, "claims": len(claims), "blocked": 0, "ran": 0, "doubts": 0, "read": read, "found": added, "overflow": overflow}

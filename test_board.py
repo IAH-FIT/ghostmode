@@ -122,7 +122,8 @@ print("echoed-template tests pass")
 
 # verdicts run together on one line still read; advice to the person is not a fact
 assert S.parse("1: doubtful | No evidence. 2: ok | Fine. 3. N: wrong | No.", ["1", "2", "3"]) == {"1": "doubtful | No evidence.", "2": "ok | Fine.", "3": "N: wrong | No."}, S.parse("1: doubtful | No evidence. 2: ok | Fine. 3. N: wrong | No.", ["1", "2", "3"])
-assert S.claim_lines("- The split turns on your ability to manage two sites.\n- The first location must stay stable.\n- The SBA 7(a) program is run by the Small Business Administration.") == ["The SBA 7(a) program is run by the Small Business Administration."]
+assert S.claim_lines("- The split turns on your ability to manage two sites.\n- You should keep the first location.\n- The SBA 7(a) program is run by the Small Business Administration.") == ["The SBA 7(a) program is run by the Small Business Administration."]
+assert S.claim_lines("- Atoms split during nuclear fission.\n- Employers must keep payroll records for three years.") == ["Atoms split during nuclear fission.", "Employers must keep payroll records for three years."]   # facts that use the words split and must are still checked
 print("one-line verdict and advice tests pass")
 
 # the number follows the words: yes at its certainty, no mirrored, undecided at 50, old SCORE as fallback
