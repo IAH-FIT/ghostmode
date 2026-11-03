@@ -5,7 +5,7 @@
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex">
-<title>Verify Ghost Mode</title>
+<title>Verify Ask in Private</title>
 <style>
 :root{--ink:#191411;--ink2:#4A423B;--ink3:#6B625A;--line:#E4DCCF;--paper:#F6EEE3;--gold:#A8822E;--gold-text:#7A5E1E;--green:#2E6B43;--serif:Georgia,"Times New Roman",serif;--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 *{box-sizing:border-box}
@@ -40,10 +40,10 @@ footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-si
 </head>
 <body>
 <div class="wrap">
-<header><a class="back" href="./">Ghost Mode</a><span class="k" style="margin:0">Zero Point Collective</span></header>
+<header><a class="back" href="./">Ask in Private</a><span class="k" style="margin:0">Zero Point Collective</span></header>
 
 <p class="k">Verification</p>
-<h1>Verify Ghost Mode.</h1>
+<h1>Verify Ask in Private.</h1>
 <p class="sub">What you type is answered on one machine and kept nowhere. This page reads that machine live and shows you what is running, so you can check instead of trust.</p>
 
 <div class="seal" id="seal">
@@ -77,13 +77,13 @@ footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-si
 
 <h2>On your side</h2>
 <p>We keep nothing. The rest is on your device, your browser and your network, and those are yours to set. Five habits cover it.</p>
-<div class="row"><div class="what">Private window</div><div class="how">Open Ghost Mode in a private or incognito window. When you close it, the browser forgets the page, the password and the yes flag.</div></div>
+<div class="row"><div class="what">Private window</div><div class="how">Open Ask in Private in a private or incognito window. When you close it, the browser forgets the page, the password and the yes flag.</div></div>
 <div class="row"><div class="what">Type it</div><div class="how">The microphone uses your browser's own speech service. Typing goes only to us.</div></div>
 <div class="row"><div class="what">Your own network</div><div class="how">A work or school network sees which sites you reach, so use your own connection or your phone's.</div></div>
 <div class="row"><div class="what">Your own device</div><div class="how">On a managed or shared device, the owner can see the screen. Use a device only you control.</div></div>
 <div class="row"><div class="what">Save, then close</div><div class="how">The report exists only on your screen. Save it where you choose, then close the tab, and it is gone from everywhere else.</div></div>
 <div class="ai" style="margin-top:16px"><a href="./#q=Outline%20the%20best%20way%20to%20keep%20a%20sensitive%20question%20private%20on%20my%20side%3A%20device%2C%20browser%2C%20network%20and%20how%20I%20save%20the%20report.%20Lawful%20steps%20only.">Ask the Board how to keep this private</a><a href="https://askboard.ai/gg" target="_blank" rel="noopener">Talk it through with Gigi</a></div>
-<p class="fine">The first opens Ghost Mode itself with that question ready. The second opens AskBoard's door, a live conversation on the main site under its own terms.</p>
+<p class="fine">The first opens Ask in Private itself with that question ready. The second opens AskBoard's door, a live conversation on the main site under its own terms.</p>
 
 <h2>Outside review</h2>
 <div class="row"><div class="what pend">Independent review</div><div class="how">A reviewer with no stake in AskBoard reads this code and this machine and signs a letter we publish here. Not yet done. Until it is, this page is our word plus what you can check above.</div></div>
@@ -99,7 +99,7 @@ const REPO="https://github.com/IAH-FIT/ghostmode";  /* the published code; empty
  if(REPO){
   $("#repo").innerHTML=`Published copy: <a href="${REPO}">${REPO.replace(/^https?:\/\//,"")}</a>. Compare its digests with the ones above.`;
   const here=location.origin+location.pathname.replace(/\/$/,"");
-  const q=encodeURIComponent(`Please check a privacy claim for me. A service called Ghost Mode says a question typed into it is answered on one machine, never stored, never logged with its text, and never sent to any outside AI company. The code that handles the question is published at ${REPO} and a live page at ${here} shows the digests of the files running right now. Read the code and the page and tell me plainly: 1) Does the code store the question anywhere, to disk, a database or a log? 2) Does it send the question to any outside service? 3) Do the published files match the live digests? 4) What does this proof cover, and what does it not cover (for example, things only an independent audit could confirm)? Be strict and specific.`);
+  const q=encodeURIComponent(`Please check a privacy claim for me. A service called Ask in Private says a question typed into it is answered on one machine, never stored, never logged with its text, and never sent to any outside AI company. The code that handles the question is published at ${REPO} and a live page at ${here} shows the digests of the files running right now. Read the code and the page and tell me plainly: 1) Does the code store the question anywhere, to disk, a database or a log? 2) Does it send the question to any outside service? 3) Do the published files match the live digests? 4) What does this proof cover, and what does it not cover (for example, things only an independent audit could confirm)? Be strict and specific.`);
   $("#ai").innerHTML=[["ChatGPT","https://chatgpt.com/?q="+q],["Claude","https://claude.ai/new?q="+q],["Grok","https://grok.com/?q="+q],["Perplexity","https://www.perplexity.ai/search?q="+q]].map(([n,u])=>`<a href="${u}" target="_blank" rel="noopener">Check it with ${n}</a>`).join("");
  }
  try{
