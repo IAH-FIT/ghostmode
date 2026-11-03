@@ -149,7 +149,7 @@ def seat_first(i, q, emit=None, records=""):
     sys_p = brain.seat_prompt(name, role)
     u = "The person's question or idea:\n<question>\n%s\n</question>" % q + ("\n\n" + records if records and i in RECORD_SEATS else "")
     d = call(sys_p, u, ["POSITION", "VERDICT", "REASON", "RISK", "SURE", "SCORE"],
-             ["POSITION", "VERDICT"], 190, temp, engine=seat_engine(i),
+             ["POSITION", "VERDICT"], 380, temp, engine=seat_engine(i),
              progress=(lambda n: n % 3 == 0 and emit("prog", {"i": i, "n": n})) if emit else None)
     return {"seat": i, "position": d["POSITION"], "reason": d.get("REASON", ""), "risk": d.get("RISK", ""), "score": verdict_score(d)}
 
@@ -164,8 +164,8 @@ def crossed(old, new):
 
 
 def count_words(scores):
-    f, a = sum(1 for s in scores if s > 50), sum(1 for s in scores if s < 50)
-    return "The count: %d for, %d against, %d between." % (f, a, len(scores) - f - a)
+    _, f, a, b = direction(scores)   # the same 60 and 40 lines as the count shown on screen
+    return "The count: %d for, %d against, %d between." % (f, a, b)
 
 
 def pick_reactors(seats):
@@ -205,11 +205,12 @@ def direction(scores):
 
 
 def prev_text(p):
-    return "HEADLINE: %s\nANSWER: %s\nCLAIMS:\n%s" % (p["headline"], p["answer"], "\n".join("- " + c for c in p["claims"]))
+    return "HEADLINE: %s\nANSWER: %s\nNEXT: %s\nCLAIMS:\n%s" % (p["headline"], p["answer"], p.get("next", ""), "\n".join("- " + c for c in p["claims"]))
 
 
 def write_page(q, seats, reacts, final_scores, d, blocked=None, prev=None):
-    heard = "\n".join("- %s (%s): %s | reason: %s | risk: %s" % (SEATS[s["seat"]][0], s["score"], s["position"], s["reason"], s["risk"]) for s in seats if not s.get("failed"))
+    cut = lambda t, n: (t or "")[:n]   # each seat line is capped so eight longer answers, the reactions and the page fit one 4k slot
+    heard = "\n".join("- %s (%s): %s | reason: %s | risk: %s" % (SEATS[s["seat"]][0], s["score"], cut(s["position"], 140), cut(s["reason"], 160), cut(s["risk"], 120)) for s in seats if not s.get("failed"))
     rx = "\n".join("- %s (%s, now %d): %s" % (SEATS[r["seat"]][0], r["stance"], r["score"], r["reply"]) for r in reacts)
     sys_p = brain.chair_prompt()
     said = {"for": "The room answers YES to the question as asked. Your HEADLINE answers yes.",
@@ -219,10 +220,10 @@ def write_page(q, seats, reacts, final_scores, d, blocked=None, prev=None):
     if blocked:
         u += ("\n\nYour earlier draft:\n%s\n\nThe fact-checkers blocked these claims. Remove each one, or restate it so it is certainly true, "
               "then rewrite every section.\nBlocked:\n%s" % (prev_text(prev), "\n".join("- " + b for b in blocked)))
-    r = call(sys_p, u, ["HEADLINE", "ANSWER", "HOLDS", "RISKS", "CHANGE", "CLAIMS"], ["HEADLINE", "ANSWER"], 420, 0.4, engine=CHAIR_ENGINE)
+    r = call(sys_p, u, ["HEADLINE", "ANSWER", "HOLDS", "RISKS", "CHANGE", "NEXT", "CLAIMS"], ["HEADLINE", "ANSWER"], 800, 0.4, engine=CHAIR_ENGINE)
     split = lambda t: [x.strip(" -*") for x in (t or "").split("|") if x.strip(" -*")][:3]
     return {"headline": r["HEADLINE"], "answer": r["ANSWER"], "holds": split(r.get("HOLDS")), "risks": split(r.get("RISKS")),
-            "would_change": r.get("CHANGE", ""), "claims": claim_lines(r.get("CLAIMS", ""))}
+            "would_change": r.get("CHANGE", ""), "next": r.get("NEXT", ""), "claims": claim_lines(r.get("CLAIMS", ""))}
 
 
 MAX_CLAIMS = 10  # keeps each checker call inside its 4k slot
@@ -311,7 +312,7 @@ def fact_check(ci, page, records=""):
     d = call(sys_p, u, keys, keys, 40 + 35 * len(claims), 0.1, engine=checker_engine(ci))
     out = Verdicts(); out.reasons = {}
     for k, v in d.items():
-        w = re.match(r"\W*(?:N\s*:\s*)?\W*(ok|doubtful|wrong)", v, re.I)   # some AIs echo the template's "N:" before the verdict
+        w = re.match(r"\W*(?:N\s*:\s*)?\W*(ok|doubtful|wrong)\b", v, re.I)   # a whole word: "okayish" and "wrongly" are not verdicts   # some AIs echo the template's "N:" before the verdict
         out[int(k)] = w.group(1).lower() if w else "doubtful"
         out.reasons[int(k)] = v[w.end():].strip(" |:-")[:160] if w else ""
     return out
@@ -404,10 +405,11 @@ def chat_turn(msg, turns, emit):
     reply = call(CHAT_PROMPT, _chat_user(msg, turns, records), ["REPLY"], ["REPLY"], 520, 0.5, engine=CHAIR_ENGINE, on_piece=piece)["REPLY"]
     emit("draft", {"reply": reply, "records": len(hits)})
     page = {"headline": msg[:200], "answer": reply, "holds": [], "risks": [], "change": "", "claims": []}
-    status, rounds, flagged, rows, overflow, check_hits = "clean", 0, [], [], 0, hits
+    status, rounds, passes, flagged, rows, overflow, check_hits = "clean", 0, 0, [], [], 0, hits
     while True:
         if getattr(emit, "gone", False):
             raise Cancelled()
+        passes += 1
         try:
             found, read = extract_claims(page), True
         except Exception:
@@ -437,7 +439,7 @@ def chat_turn(msg, turns, emit):
         reply = call(CHAT_PROMPT, _chat_user(msg, turns, records, blocked, reply), ["REPLY"], ["REPLY"], 520, 0.4, engine=CHAIR_ENGINE)["REPLY"]
         page["answer"] = reply
         emit("rewrite", {"reply": reply, "dropped": len(blocked)})
-    emit("final", {"reply": reply, "status": status, "claims": rows, "flagged": flagged, "overflow": overflow, "rounds": rounds + 1,
+    emit("final", {"reply": reply, "status": status, "claims": rows, "flagged": flagged, "overflow": overflow, "rounds": passes,
                    "records": [{"title": h["title"], "date": h["date"], "type": h["type"], "source": h["source"]} for h in check_hits],
                    "ms": int((time.time() - t0) * 1000)})
 
@@ -496,11 +498,12 @@ def run(q, emit, doc="", docname=""):
     t1 = time.time()
     page = write_page(q, seats, reacts, final, d)
     emit("draft", {"headline": page["headline"]})
-    rounds, status, read = 0, "clean", True
+    rounds, passes, status, read = 0, 0, "clean", True
     check_hits = hits
     while True:
         if getattr(emit, "gone", False):
             raise Cancelled()
+        passes += 1
         try:  # the Reader covers every sentence; the Chair's own list alone is not coverage
             found = extract_claims(page)
             read = True
@@ -541,10 +544,10 @@ def run(q, emit, doc="", docname=""):
     page["records"] = [{"title": h["title"], "date": h["date"], "type": h["type"], "source": h["source"]} for h in check_hits]
     total = time.time() - t0
     emit("final", {"page": page, "direction": d, "for": nf, "against": na, "between": nb, "moved": moved,
-                   "fact": {"status": status, "claims": len(page["claims"]), "rounds": rounds + 1, "ran": ran, "doubts": doubts, "read": read, "overflow": overflow},
+                   "fact": {"status": status, "claims": len(page["claims"]), "rounds": passes, "ran": ran, "doubts": doubts, "read": read, "overflow": overflow},
                    "ms": int(total * 1000)})
     sys.stderr.write("[quick-board] total_ms=%d seats_ms=%d write_check_ms=%d moved=%d dir=%s fact=%s rounds=%d\n" % (
-        total * 1000, t_seats * 1000, (time.time() - t1) * 1000, moved, d, status, rounds + 1))
+        total * 1000, t_seats * 1000, (time.time() - t1) * 1000, moved, d, status, passes))
 
 
 PRINT = {"code": {}, "model": {"status": "computing"}, "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}

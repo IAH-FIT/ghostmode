@@ -261,3 +261,58 @@ with tempfile.TemporaryDirectory() as td:
     open(os.path.join(td, "thin.txt"), "w").write("Title: Thin\nSource: https://example.org/t\nDate: 2001\nType: report\nTopics: zebra crossing\n\nA zebra stood nearby.")
     assert [h for h in ar.search("zebra crossing") if h["title"] == "Thin"] == [], "one shared word is not enough, even when the topic opened the document"                                         # passage words alone, with no topic named, are not enough
 print("topic gate tests pass")
+
+# ---- fuller answers (Ghost Mode bench 2026-11-03: seat answers 33 words, pages 138 words) ----
+_seen = {}
+def _stub(system, user, keys, need, mt, temp=0.5, progress=None, engine=0, on_piece=None):
+    _seen.setdefault("calls", []).append((mt, user, keys))
+    if "NEXT" in keys:
+        return {"HEADLINE": "h", "ANSWER": "a b c", "HOLDS": "x | y", "RISKS": "r", "CHANGE": "c", "NEXT": "Call the lender on Monday and ask for the payoff figure.", "CLAIMS": "NONE"}
+    return {"POSITION": "p", "VERDICT": "yes", "REASON": "r", "RISK": "k", "SURE": "80", "SCORE": ""}
+import importlib.util as _iu
+_sp = _iu.spec_from_file_location("server_fresh", os.path.join(os.path.dirname(os.path.abspath(__file__)), "server.py")); F = _iu.module_from_spec(_sp); _sp.loader.exec_module(F)   # a fresh copy: earlier tests replaced functions on S
+F.call = _stub
+big = "x" * 5000
+pg = F.write_page("q?", [{"seat": 0, "score": 80, "position": big, "reason": big, "risk": big}] * 8, [], [80] * 8, "for")
+assert pg["next"].startswith("Call the lender"), pg                                         # the Chair's NEXT line reaches the page
+mt, user, keys = _seen["calls"][-1]
+assert mt >= 700 and len(user) < 8 * 460 + 700, (mt, len(user))                              # a longer page, and eight long seat lines still fit one 4k slot
+F.seat_first(0, "question text here", None, "")
+assert _seen["calls"][-1][0] >= 300, _seen["calls"][-1][0]                                   # seats may write more than the old 190-token cap
+import brain as _b
+assert "NEXT:" in _b.chair_prompt() and "under 45 words" in _b.seat_prompt("n", "r") and "under 25 words" not in _b.seat_prompt("n", "r")
+print("fuller answer tests pass")
+
+# ---- one idle time everywhere: an hour (Michael, 2026-11-03: "60 min") ----
+_here = os.path.dirname(os.path.abspath(__file__))
+_pg = open(os.path.join(_here, "page.src.html")).read()
+assert "const IDLE=60*60*1000;" in _pg, "the page clears the report after an hour"
+assert "Shredded after an hour of quiet, at " in _pg and "ten quiet minutes" not in _pg, "the receipt says the same hour"
+for _f in ("verify.html", "terms.html", "privacy.html", "page.src.html"):
+    _t = open(os.path.join(_here, _f)).read()
+    assert "ten quiet minutes" not in _t and "10 minutes" not in _t and "ten idle minutes" not in _t, _f
+    assert "Ask in Private" not in _t and "Ghost Mode" not in _t, _f + ": the name is AskInPrivate"
+print("idle time and name agree everywhere")
+
+# ---- truth fixes 2a to 2c (N03 audit, 2026-11-03) ----
+def _fresh(name):
+    sp = _iu.spec_from_file_location(name, os.path.join(_here, "server.py")); m = _iu.module_from_spec(sp); sp.loader.exec_module(m); return m
+G = _fresh("server_g")
+G.call = lambda *a, **k: {"1": "okayish | maybe", "2": "wrongly | maybe", "3": "ok | fine", "4": "N: wrong | no"}
+_v = G.fact_check(0, {"headline": "h", "answer": "a", "claims": ["c1", "c2", "c3", "c4"], "holds": [], "risks": []}, "")
+assert dict(_v) == {1: "doubtful", 2: "doubtful", 3: "ok", 4: "wrong"}, dict(_v)             # 2a: only a whole word is a verdict
+assert G.count_words([55, 55, 45]) == "The count: 0 for, 0 against, 3 between."              # 2b: the Chair is told the same count the screen shows
+assert G.count_words([80] * 5 + [20] * 3) == "The count: 5 for, 3 against, 0 between." and G.direction([55, 55, 45])[1:] == (0, 0, 3)
+# 2c: "rounds" is the number of checks actually run
+H = _fresh("server_h")
+H.ARCHIVE.search = lambda q, k=3, per_doc=1: []
+H.seat_first = lambda i, q, emit, records: {"seat": i, "position": "p", "score": 80, "reason": "r", "risk": "k"}
+H.react = lambda i, q, seats, others: {"seat": i, "reply": "r", "stance": "hold", "score": seats[i]["score"]}
+H.write_page = lambda *a, **k: {"headline": "h", "answer": "a", "holds": [], "risks": [], "would_change": "", "next": "", "claims": ["A claim."]}
+H.extract_claims = lambda page: []
+for verdict, want_status, want_rounds in (("wrong", "flagged", 2), ("ok", "clean", 1)):
+    H.safe_check = lambda ci, page, records="", v=verdict: H.Verdicts({1: v})
+    _o = []; H.run("Is a long enough question here?", lambda ev, d: _o.append((ev, d)))
+    _f = [d for ev, d in _o if ev == "final"][0]["fact"]
+    assert _f["status"] == want_status and _f["rounds"] == want_rounds, _f                   # a flagged page ran two checks, not three
+print("truth fixes 2a to 2c pass")
