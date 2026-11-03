@@ -10,7 +10,10 @@ A document is one UTF-8 .txt file, header lines first, then a blank line, then t
     Source: https://nsarchive2.gwu.edu/news/20010430/northwoods.pdf
     Date: 1962-03-13
     Type: declassified
-Intake lives in intake.py (fetch, extract text, write the header). Judge a document before it goes in: primary record only.
+    Topics: northwoods, cuba, false flag, joint chiefs
+Topics (comma-separated words or phrases) are the gate: a document is searched only when the question contains one of them, so an everyday question
+never pulls a government report that merely shares a few common words (Ghost Mode bench, 2026-11-03: all 12 everyday questions did). A document with no
+Topics line is never returned; archive.untagged() lists them. Intake lives in intake.py (fetch, extract text, write the header). Judge a document before it goes in: primary record only.
 """
 import math, os, re, threading
 
@@ -34,11 +37,16 @@ def read_doc(path):
     meta = {}
     for line in head.splitlines():
         k, _, v = line.partition(":")
-        if _ and k.strip().lower() in ("title", "source", "date", "type"):
+        if _ and k.strip().lower() in ("title", "source", "date", "type", "topics"):
             meta[k.strip().lower()] = v.strip()
     if "title" not in meta:  # no header: the whole file is text, the file name is the title
         meta, body = {"title": os.path.splitext(os.path.basename(path))[0]}, raw
     return meta, body.strip()
+
+
+def phrases(topics):
+    """The Topics line as normalized phrases: lower case words joined by single spaces, so 'non-compete' matches the question's 'non-compete'."""
+    return [" ".join(_tok.findall(p.lower())) for p in (topics or "").split(",") if _tok.findall(p.lower())]
 
 
 def passages(body):
@@ -64,6 +72,7 @@ class Archive:
     def __init__(self, folder=ARCHIVE_DIR):
         self.folder, self.lock, self.stamp = folder, threading.Lock(), None
         self.items, self.df, self.avg = [], {}, 1.0
+        self.untagged_titles = []
 
     def _files(self):
         if not os.path.isdir(self.folder):
@@ -77,12 +86,15 @@ class Archive:
         with self.lock:
             if stamp == self.stamp:
                 return
-            items, df = [], {}
+            items, df, untagged = [], {}, []
             for f in files:
                 try:
                     meta, body = read_doc(f)
                 except Exception:
                     continue
+                meta["_topics"] = phrases(meta.get("topics"))
+                if not meta["_topics"]:
+                    untagged.append(meta.get("title", os.path.basename(f)))
                 for p in passages(body):
                     tf = {}
                     for t in tokens(p):
@@ -90,23 +102,38 @@ class Archive:
                     for t in tf:
                         df[t] = df.get(t, 0) + 1
                     items.append((meta, p, tf, len(p)))
-            self.items, self.df, self.stamp = items, df, stamp
+            self.items, self.df, self.stamp, self.untagged_titles = items, df, stamp, untagged
             self.avg = (sum(i[3] for i in items) / len(items)) if items else 1.0
 
+    def untagged(self):
+        """Titles of documents with no Topics line: they are never returned, so intake must tag every document."""
+        self.refresh()
+        return list(self.untagged_titles)
+
     def search(self, query, k=3, per_doc=1):
-        """Top passages for the question, at most per_doc from any one document. [] when the archive is empty or nothing matches."""
+        """Top passages for the question, at most per_doc from any one document. [] when the question names none of any document's Topics.
+        An anchored document is searched with the question's words (weight 2) plus its own topic words (weight 1), so 'notify' finds the
+        breach-notification article. A passage needs two shared words."""
         self.refresh()
         q = set(tokens(query))
         if not q or not self.items:
             return []
+        said = " " + " ".join(_tok.findall(query.lower())) + " "   # the question as plain words, for the topic gate
         n, scored = len(self.items), []
         for meta, p, tf, ln in self.items:
-            s = 0.0
-            for t in q:
+            topics = meta.get("_topics", [])
+            if not any(" " + t + " " in said for t in topics):
+                continue   # the question names none of this document's topics: it is not about this record
+            qd = {t: 2.0 for t in q}
+            for t in tokens(" ".join(topics)):
+                qd.setdefault(t, 1.0)
+            s, hit = 0.0, 0
+            for t, w in qd.items():
                 if t in tf:
+                    hit += 1
                     idf = math.log(1 + (n - self.df[t] + 0.5) / (self.df[t] + 0.5))
-                    s += idf * tf[t] * 2.2 / (tf[t] + 1.2 * (0.25 + 0.75 * ln / self.avg))
-            if s > 0:
+                    s += w * idf * tf[t] * 2.2 / (tf[t] + 1.2 * (0.25 + 0.75 * ln / self.avg))
+            if hit >= 2:
                 scored.append((s, meta, p))
         scored.sort(key=lambda x: -x[0])
         out, seen = [], {}
@@ -114,10 +141,7 @@ class Archive:
             key = meta.get("source") or meta.get("title")
             if seen.get(key, 0) >= per_doc:
                 continue
-            hit = [t for t in q if t in tokens(p)]
-            if len(hit) < min(3, len(q)):  # one or two shared words is noise, not evidence
-                continue
-            seen[key] = seen.get(key, 0) + 1   # a slot is spent only by a passage that qualifies
+            seen[key] = seen.get(key, 0) + 1
             out.append({"title": meta.get("title", ""), "source": meta.get("source", ""), "date": meta.get("date", ""),
                         "type": meta.get("type", ""), "text": p[:QUOTE].rsplit(" ", 1)[0] if len(p) > QUOTE else p})
             if len(out) >= k:
