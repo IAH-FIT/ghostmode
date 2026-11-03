@@ -201,13 +201,13 @@ def write_page(q, seats, reacts, final_scores, d, blocked=None, prev=None):
 MAX_CLAIMS = 10  # keeps each checker call inside its 4k slot
 
 
-NOT_A_FACT = re.compile(r"\b(the board(?! of)|the ais?|ais\b|the room|the seats?|the chair|would change the answer|next step|split)\b|\b(should|must|you|your)\b", re.I)
+NOT_A_FACT = re.compile(r"\b(the board(?! of)|the ais?|ais\b|the room|the seats?|the chair|would change the answer|next step|split)\b|\b(should|must)\b|^(you|your)\b", re.I)
 
 
 def claim_lines(raw):
     """The '- ' lines of a CLAIMS block. NONE, prose or an empty block give []. Statements about the room and advice are
     dropped: they are not facts about the world, and checking them flags true pages (three-lab runs, 2026-11-03)."""
-    out = [l.strip()[1:].strip() for l in (raw or "").splitlines() if l.strip().startswith(("-", "*")) and len(l.strip()) > 2]
+    out = [re.sub(r"^(?:[-*]|\d+[.)])\s*", "", l.strip()) for l in (raw or "").splitlines() if re.match(r"\s*(?:[-*]|\d+[.)])\s*\S", l)]
     return [c for c in out if not NOT_A_FACT.search(c)]
 
 
@@ -549,8 +549,14 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
 
 
+class Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):   # the default prints a traceback; this machine logs the type only
+        sys.stderr.write("[quick-board] handler_error=%s\n" % (sys.exc_info()[0].__name__ if sys.exc_info()[0] else "-"))
+
+
 if __name__ == "__main__":
-    ThreadingHTTPServer.daemon_threads = True
     fingerprint()
     print("quick board on :%d" % PORT, flush=True)
-    ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()
+    Server(("127.0.0.1", PORT), H).serve_forever()

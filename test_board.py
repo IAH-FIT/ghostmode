@@ -130,3 +130,16 @@ assert S.verdict_score({"VERDICT": "No, it did not.", "SURE": "95"}) == 5 and S.
 assert S.verdict_score({"VERDICT": "Undecided", "SURE": "90"}) == 50 and S.verdict_score({"VERDICT": "no", "SURE": "20"}) == 50   # sure clamps to 50..100
 assert S.verdict_score({"SCORE": "30"}) == 30 and S.verdict_score({}, 64) == 64
 print("verdict score tests pass")
+
+# numbered claim lists read like dashed ones; a fact that mentions "your" is still a fact; errors log the type only
+assert S.claim_lines("1. The resolution passed in 1964.\n2) The vote was 88 to 2.\n- Insulin is made in your pancreas.") == ["The resolution passed in 1964.", "The vote was 88 to 2.", "Insulin is made in your pancreas."]
+assert S.claim_lines("- You should wait.\nNONE") == []
+import io, contextlib
+_buf = io.StringIO()
+with contextlib.redirect_stderr(_buf):
+    try:
+        raise ValueError("secret question text")
+    except ValueError:
+        S.Server.handle_error(None, None, ("127.0.0.1", 1))
+assert "secret" not in _buf.getvalue() and "ValueError" in _buf.getvalue(), _buf.getvalue()
+print("claim list and error-log tests pass")
