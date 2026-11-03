@@ -264,6 +264,37 @@ def merge_claims(chair, found, cap=MAX_CLAIMS):
     return out[:cap] if cap else out
 
 
+class Verdicts(dict):
+    """claim number to ok, doubtful or wrong; .reasons holds each checker's one-line reason (kept in memory for this run only)."""
+    reasons = {}
+
+
+def claim_hits(claims, hits):
+    """The question's passages plus the best passage for each claim: the seats may raise a fact the question never named."""
+    seen = {h.get("source") or h.get("title") for h in hits}
+    out = list(hits)
+    for c in claims:
+        try:
+            found = ARCHIVE.search(c, k=1)
+        except Exception:
+            found = []
+        for h in found:
+            key = h.get("source") or h.get("title")
+            if key not in seen:
+                seen.add(key); out.append(h)
+    return out
+
+
+def evidence_rows(claims, checks):
+    """Per claim: how the checkers voted and whether any reason cites a record. A checker that did not run counts as doubtful."""
+    rows = []
+    for i, c in enumerate(claims, 1):
+        vs = [(ch or {}).get(i, "doubtful") for ch in checks]
+        cited = any(re.search(r"\[R\d+\]", (getattr(ch, "reasons", None) or {}).get(i, "")) for ch in checks if ch)
+        rows.append({"claim": c, "ok": vs.count("ok"), "doubtful": vs.count("doubtful"), "wrong": vs.count("wrong"), "records": cited})
+    return rows
+
+
 def fact_check(ci, page, records=""):
     name, power = CHECKERS[ci]
     claims = page["claims"]
@@ -273,10 +304,11 @@ def fact_check(ci, page, records=""):
     keys = [str(i + 1) for i in range(len(claims))]
     u = "Page:\n%s\n\nClaims to check:\n%s" % (text, numbered) + ("\n\n" + records if records else "")
     d = call(sys_p, u, keys, keys, 40 + 35 * len(claims), 0.1, engine=checker_engine(ci))
-    out = {}
+    out = Verdicts(); out.reasons = {}
     for k, v in d.items():
         w = re.match(r"\W*(?:N\s*:\s*)?\W*(ok|doubtful|wrong)", v, re.I)   # some AIs echo the template's "N:" before the verdict
         out[int(k)] = w.group(1).lower() if w else "doubtful"
+        out.reasons[int(k)] = v[w.end():].strip(" |:-")[:160] if w else ""
     return out
 
 
@@ -387,6 +419,7 @@ def run(q, emit, doc="", docname=""):
     page = write_page(q, seats, reacts, final, d)
     emit("draft", {"headline": page["headline"]})
     rounds, status, read = 0, "clean", True
+    check_hits = hits
     while True:
         if getattr(emit, "gone", False):
             raise Cancelled()
@@ -406,14 +439,16 @@ def run(q, emit, doc="", docname=""):
             emit("check", ev)
             break
         if claims:
+            check_records, check_hits = brief(claim_hits(claims, hits), 1800)   # what the checkers see: the question's passages plus one for each claim
             with ThreadPoolExecutor(3) as ex:
-                checks = list(ex.map(lambda ci: safe_check(ci, page, records), range(3)))
+                checks = list(ex.map(lambda ci: safe_check(ci, page, check_records), range(3)))
             ran = sum(1 for c in checks if c is not None)
             if ran < 2:
                 status = "unchecked"
                 emit("check", {**ev, "ran": ran})
                 break
             blocked, doubts = consensus(claims, checks)
+            page["evidence"] = evidence_rows(claims, checks)
         emit("check", {**ev, "blocked": len(blocked), "ran": ran, "doubts": doubts})
         if not blocked:
             if not read or overflow:   # checked, but not every sentence: say so, never "clean"
@@ -425,7 +460,7 @@ def run(q, emit, doc="", docname=""):
             status = "flagged"
             break
         page = write_page(q, seats, reacts, final, d, blocked, page)
-    page["records"] = [{"title": h["title"], "date": h["date"], "type": h["type"], "source": h["source"]} for h in hits]
+    page["records"] = [{"title": h["title"], "date": h["date"], "type": h["type"], "source": h["source"]} for h in check_hits]
     total = time.time() - t0
     emit("final", {"page": page, "direction": d, "for": nf, "against": na, "between": nb, "moved": moved,
                    "fact": {"status": status, "claims": len(page["claims"]), "rounds": rounds + 1, "ran": ran, "doubts": doubts, "read": read, "overflow": overflow},

@@ -171,3 +171,33 @@ except S.Cancelled:
     _ok = True
 assert _ok and _calls == [], _calls
 print("benchmark fix tests pass")
+
+# ---- claim-time records and kept reasons (2026-11-03 audits: checkers saw only passages that matched the question) ----
+_hq = [{"title": "Question record", "source": "q.txt", "date": "", "type": "", "text": "about the question"}]
+S.ARCHIVE.search = lambda q, k=3, per_doc=1: [{"title": "Tonkin record", "source": "t.txt", "date": "1964", "type": "hearing", "text": "the Gulf of Tonkin"}] if "Tonkin" in q else []
+_m = S.claim_hits(["The Gulf of Tonkin vote was 88 to 2 in the Senate.", "Water boils at 100 C."], _hq)
+assert [h["source"] for h in _m] == ["q.txt", "t.txt"], _m                       # a record that matches only a claim reaches the checkers
+assert [h["source"] for h in S.claim_hits(["Gulf of Tonkin again Tonkin."], _m)] == ["q.txt", "t.txt"]   # no duplicate of a record they already have
+_real_call = S.call
+S.call = lambda *a, **k: {"1": "ok | Matches [R2].", "2": "doubtful | Not in the records."}
+_v = S.fact_check(0, {"headline": "h", "answer": "a", "claims": ["c one", "c two"], "holds": [], "risks": [], "change": ""}, "")
+assert dict(_v) == {1: "ok", 2: "doubtful"} and "[R2]" in _v.reasons[1], (dict(_v), _v.reasons)
+S.call = _real_call
+_rows = S.evidence_rows(["c one", "c two"], [_v, _v, None])
+assert _rows[0] == {"claim": "c one", "ok": 2, "doubtful": 1, "wrong": 0, "records": True}, _rows[0]   # None = a checker that did not run counts as doubtful
+assert _rows[1]["records"] is False and _rows[1]["doubtful"] == 3, _rows[1]
+print("claim-time records and evidence tests pass")
+# run() hands the checkers the claim's own record, end to end
+_seen = {}
+S.seat_first = lambda i, q, emit, records: {"seat": i, "position": "p", "score": 80 if i < 4 else 20, "reason": "r", "risk": "k"}
+S.react = lambda i, q, seats, others: {"seat": i, "reply": "r", "stance": "hold", "score": seats[i]["score"]}
+S.write_page = lambda *a, **k: {"headline": "h", "answer": "a", "holds": [], "risks": [], "change": "", "claims": ["The Gulf of Tonkin vote was 88 to 2."]}
+S.extract_claims = lambda page: []
+S.safe_check = lambda ci, page, records="": _seen.setdefault("rec", records) and S.Verdicts({1: "ok"})
+S.ARCHIVE.search = lambda q, k=3, per_doc=1: [{"title": "Tonkin record", "source": "t.txt", "date": "1964", "type": "hearing", "text": "the Gulf of Tonkin"}] if "Tonkin" in q else []
+_out = []
+S.run("Was the first account honest?", lambda ev, d: _out.append((ev, d)))
+assert "Tonkin record" in _seen["rec"], _seen
+_fin = [d for ev, d in _out if ev == "final"][0]
+assert [r["source"] for r in _fin["page"]["records"]] == ["t.txt"] and _fin["page"]["evidence"][0]["ok"] == 3, _fin["page"]
+print("run passes the claim's record to the checkers")
