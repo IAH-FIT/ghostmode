@@ -85,7 +85,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None   # an engine that answers with a redirect is an error, never a second destination
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)   # no environment proxy: the question only ever goes to the loopback engine
 
-def call(system, user, keys, need, max_tokens, temp=0.5, progress=None, engine=0, on_piece=None):
+def call(system, user, keys, need, max_tokens, temp=0.5, progress=None, engine=0, on_piece=None, partial_ok=False):
     """One model call. Retries once if a needed line is missing or the reply was cut off."""
     body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "max_tokens": max_tokens, "temperature": temp, "top_p": 0.9,
@@ -117,8 +117,10 @@ def call(system, user, keys, need, max_tokens, temp=0.5, progress=None, engine=0
                 text, finish = c["message"]["content"], c.get("finish_reason")
             d = parse(text, keys)
             miss = [k for k in need if not d.get(k)]
-            if miss or finish == "length":
+            if miss or (finish == "length" and not partial_ok):
                 raise ValueError(("cut off at %d tokens, " % max_tokens if finish == "length" else "") + "missing " + ",".join(miss))
+            if finish == "length":
+                d["_cut"] = True   # the caller said a partial reply is usable and must say so on the page
             return d
         except Exception as e:
             last = e
@@ -247,13 +249,25 @@ def page_text(page):
         page["headline"], page["answer"], " | ".join(page["holds"]), " | ".join(page["risks"]), page.get("would_change", ""))
 
 
+READER_TOKENS, READER_MAX = 700, 12   # production failure found 2026-11-03: a 320-token cap cut the Reader off on 400-word pages and the page went unchecked
+
+
+class Claims(list):
+    """The Reader's claim lines; .cut is True when its reply was cut off, so the list may be incomplete."""
+    cut = False
+
+
 def extract_claims(page):
     """A second, independent read of the finished page: every sentence, every fact about the world, so the checkers test
     what the person will actually read and not only what the Chair chose to list (expert audit, 2026-11-02)."""
     sys_p = brain.reader_prompt()
-    d = call(sys_p, "Page:\n%s" % page_text(page), ["CLAIMS"], ["CLAIMS"], 320, 0.1, engine=READER_ENGINE)
-    found = claim_lines(d["CLAIMS"])
-    if not found and d["CLAIMS"].strip().upper() != "NONE":
+    d = call(sys_p, "Page:\n%s" % page_text(page), ["CLAIMS"], ["CLAIMS"], READER_TOKENS, 0.1, engine=READER_ENGINE, partial_ok=True)
+    raw, cut = d["CLAIMS"], bool(d.get("_cut"))
+    if cut:
+        raw = "\n".join(raw.splitlines()[:-1])   # the last line was cut mid-sentence: drop it, keep what was read
+    found = Claims(claim_lines(raw)[:READER_MAX])   # the person's own figures and room statements are stripped before the count, so they never use a slot
+    found.cut = cut
+    if not found and not cut and d["CLAIMS"].strip().upper() != "NONE":
         raise ValueError("Reader answered in prose")   # prose is not a reading; the caller marks the run partial
     return found
 
@@ -414,10 +428,11 @@ def chat_turn(msg, turns, emit):
             found, read = extract_claims(page), True
         except Exception:
             found, read = [], False
-        overflow = max(0, len(merge_claims([], found, cap=None)) - MAX_CLAIMS)
+        cut = bool(getattr(found, "cut", False))
+        overflow = max(1 if cut else 0, len(merge_claims([], found, cap=None)) - MAX_CLAIMS)   # a cut-off list counts as more claims than were checked
         page["claims"] = claims = merge_claims([], found)
         if not claims:
-            status = "nothing_to_check" if read else "unchecked"
+            status = "nothing_to_check" if read and not cut else "unchecked"
             rows = []
             break
         emit("checking", {"claims": len(claims), "round": rounds + 1})
@@ -510,12 +525,13 @@ def run(q, emit, doc="", docname=""):
         except Exception:
             found, read = [], False
         before = len(page["claims"])
-        overflow = max(0, len(merge_claims(page["claims"], found, cap=None)) - MAX_CLAIMS)   # counted before the cap, or a full list reads as complete
+        cut = bool(getattr(found, "cut", False))
+        overflow = max(1 if cut else 0, len(merge_claims(page["claims"], found, cap=None)) - MAX_CLAIMS)   # counted before the cap, or a full list reads as complete; a cut-off list is incomplete
         page["claims"] = claims = merge_claims(page["claims"], found)
         added = max(0, len(claims) - before)   # claims the Reader found that the Chair had left off, after duplicates
         blocked, doubts, ran = [], 0, 0
         ev = {"round": rounds + 1, "claims": len(claims), "blocked": 0, "ran": 0, "doubts": 0, "read": read, "found": added, "overflow": overflow}
-        if not claims and not read:  # nobody read the page: that is unchecked, never "nothing to check"
+        if not claims and (not read or cut):  # nobody read the page, or the reading was cut off with nothing kept: unchecked, never "nothing to check"
             status = "unchecked"
             emit("check", ev)
             break

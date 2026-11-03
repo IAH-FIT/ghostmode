@@ -316,3 +316,44 @@ for verdict, want_status, want_rounds in (("wrong", "flagged", 2), ("ok", "clean
     _f = [d for ev, d in _o if ev == "final"][0]["fact"]
     assert _f["status"] == want_status and _f["rounds"] == want_rounds, _f                   # a flagged page ran two checks, not three
 print("truth fixes 2a to 2c pass")
+
+# ---- the Reader fix (production failure found by the 2026-11-03 experiment: a 320-token cap cut the Reader off and 4 of 12 long pages went unchecked) ----
+import io as _io, json
+K = _fresh("server_k")
+class _Resp(_io.BytesIO): pass
+def _fake_open(content, finish):
+    return lambda req, timeout=0: _Resp(json.dumps({"choices": [{"message": {"content": content}, "finish_reason": finish}]}).encode())
+K._OPENER.open = _fake_open("CLAIMS:\n- A is true.\n- B is true.\n- C is tru", "length")
+assert K.call("s", "u", ["CLAIMS"], ["CLAIMS"], 50, partial_ok=True)["CLAIMS"].startswith("- A") and K.call("s", "u", ["CLAIMS"], ["CLAIMS"], 50, partial_ok=True)["_cut"] is True
+try:
+    K.call("s", "u", ["CLAIMS"], ["CLAIMS"], 50); _ok = False
+except RuntimeError:
+    _ok = True
+assert _ok, "a cut-off reply is still an error unless the caller allows a partial one"
+_seen_cap = []
+def _reader_call(system, user, keys, need, mt, temp=0.5, progress=None, engine=0, on_piece=None, partial_ok=False):
+    _seen_cap.append((mt, partial_ok)); return {"CLAIMS": "- A is true.\n- B is true.\n- C is tru", "_cut": True}
+K.call = _reader_call
+_pg = {"headline": "h", "answer": "a", "holds": [], "risks": [], "would_change": ""}
+_c = K.extract_claims(_pg)
+assert list(_c) == ["A is true.", "B is true."] and _c.cut is True, (list(_c), _c.cut)      # the half line is dropped, what was read is kept
+assert _seen_cap[-1][0] >= 700 and _seen_cap[-1][1] is True, _seen_cap                       # the cap that failed in production stays fixed
+K.call = lambda *a, **k: {"CLAIMS": "\n".join(["- You hold $40,000 in cash.", "- You owe $14,000.", "- Your bank pays 4 percent.", "- The room is unanimous."] + ["- Real fact number %d is true." % i for i in range(14)])}
+assert len(K.extract_claims(_pg)) == 12 and all(c.startswith("Real") for c in K.extract_claims(_pg)), "the person's own figures and the room never use one of the 12"
+# a cut-off reading is partial in the run, unchecked when nothing was kept, never clean
+K.ARCHIVE.search = lambda q, k=3, per_doc=1: []
+K.seat_first = lambda i, q, emit, records: {"seat": i, "position": "p", "score": 80, "reason": "r", "risk": "k"}
+K.react = lambda i, q, seats, others: {"seat": i, "reply": "r", "stance": "hold", "score": seats[i]["score"]}
+K.write_page = lambda *a, **k: {"headline": "h", "answer": "a", "holds": [], "risks": [], "would_change": "", "next": "", "claims": []}
+K.safe_check = lambda ci, page, records="": K.Verdicts({1: "ok"})
+for kept, want in ((["A claim."], "partial"), ([], "unchecked")):
+    _cl = K.Claims(kept); _cl.cut = True
+    K.extract_claims = lambda page, _cl=_cl: _cl
+    _o = []; K.run("Is a long enough question here?", lambda ev, d: _o.append((ev, d)))
+    _st = [d for ev, d in _o if ev == "final"][0]["fact"]["status"]
+    assert _st == want, (kept, _st)
+K.call = lambda system, user, keys, need, mt, temp=0.5, progress=None, engine=0, on_piece=None, partial_ok=False: {"REPLY": "An answer."}
+_cl = K.Claims(["A claim."]); _cl.cut = True; K.extract_claims = lambda page: _cl
+_o = []; K.chat_turn("A question that is long enough?", [], lambda ev, d: _o.append((ev, d)))
+assert [d for ev, d in _o if ev == "final"][0]["status"] == "partial", "chat turns degrade the same way"
+print("reader fix tests pass")
